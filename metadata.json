@@ -1,0 +1,7 @@
+{
+  "name": "EcoExpress Water Logistics",
+  "description": "A comprehensive web application for managing water delivery inventory, orders, and logistics for EcoExpress.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

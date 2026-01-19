@@ -1,0 +1,471 @@
+import React, { useState, useEffect } from 'react';
+import { Card, Button, StatusBadge } from './SharedComponents';
+import { getOrders, saveOrder, getVehicleInventory, updateVehicleInventory } from '../services/mockService';
+import { Order, OrderStatus, ProductType, CanState, InventoryItem } from '../types';
+import { Map, Truck, PackageCheck, CheckCircle, Navigation, Wallet, Package, Clock, ShieldAlert } from 'lucide-react';
+import { DRIVER_CREDENTIALS } from '../constants';
+import { VehicleStockModal } from './VehicleStockModal';
+
+export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [vehicleStock, setVehicleStock] = useState<InventoryItem[]>([]);
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [showStockModal, setShowStockModal] = useState(false);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
+  const [showValidation, setShowValidation] = useState(false);
+
+  const [emptyCansInput, setEmptyCansInput] = useState(0);
+
+  // Mock Driver ID
+  const driverId = DRIVER_CREDENTIALS.username;
+
+  const loadData = () => {
+    // Sort by Date/Time
+    const allOrders = getOrders().sort((a, b) => new Date(a.deliveryDate).getTime() - new Date(b.deliveryDate).getTime());
+    setOrders(allOrders);
+    setVehicleStock(getVehicleInventory(driverId));
+  };
+
+  const toggleOrderSelection = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newSet = new Set(selectedOrderIds);
+    if (newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    setSelectedOrderIds(newSet);
+  };
+
+  const selectAllPending = () => {
+    const pending = orders.filter(o => o.status === OrderStatus.PENDING).map(o => o.id);
+    setSelectedOrderIds(new Set(pending));
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const handleStatusChange = (order: Order, newStatus: OrderStatus, emptyCansReturned?: number) => {
+    const updatedOrder = { ...order, status: newStatus, emptyCansReturned };
+
+    // Inventory Logic on Confirmation
+    if (newStatus === OrderStatus.CONFIRMED) {
+      // Deduct from Vehicle Stock check
+      let sufficient = true;
+      order.items.forEach(item => {
+        if (item.productType === ProductType.CAN_20L) {
+          const stock = vehicleStock.find(s => s.type === ProductType.CAN_20L && s.canState === CanState.FILLED);
+          if (!stock || stock.quantity < item.quantity) sufficient = false;
+        } else {
+          // Bottle logic (Cases)
+          const stock = vehicleStock.find(s => s.type === item.productType);
+          if (!stock || stock.quantity < (item.calculatedCases || 0)) sufficient = false;
+        }
+      });
+
+      if (!sufficient) {
+        alert("Insufficient Vehicle Stock! Load inventory first.");
+        return;
+      }
+
+      // Deduct
+      order.items.forEach(item => {
+        const itemToDeduct = {
+          type: item.productType,
+          quantity: item.productType === ProductType.CAN_20L ? item.quantity : (item.calculatedCases || 1),
+          canState: item.productType === ProductType.CAN_20L ? CanState.FILLED : undefined
+        };
+        updateVehicleInventory(driverId, itemToDeduct, false);
+      });
+      // Refresh local view
+      loadData();
+    }
+
+    // Logic on Delivered (Add Empty Cans to Vehicle Stock)
+    if (newStatus === OrderStatus.DELIVERED && emptyCansReturned && emptyCansReturned > 0) {
+      // Add Empty Cans to Vehicle Inventory
+      const emptyCanItem = {
+        type: ProductType.CAN_20L,
+        quantity: emptyCansReturned,
+        canState: CanState.EMPTY
+      };
+      updateVehicleInventory(driverId, emptyCanItem, true); // True = Load into vehicle (collection)
+      loadData();
+    }
+
+    saveOrder(updatedOrder);
+
+    // Update local state
+    setOrders(orders.map(o => o.id === order.id ? updatedOrder : o));
+    setSelectedOrder(updatedOrder);
+  };
+
+  const openMap = (location: string) => {
+    window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`, '_blank');
+  };
+
+  // Derived Stats
+  const activeOrders = orders.filter(o => o.status !== OrderStatus.DELIVERED && o.status !== OrderStatus.COMPLETED);
+  const completedToday = orders.filter(o => o.status === OrderStatus.DELIVERED).length;
+  // Calculate cash to collect (Total of active delivered orders or pending ones)
+  // Logic: Driver collects cash on Delivery. 
+  // Let's show "Pending Collection" for Dispatched orders.
+  const cashToCollect = activeOrders
+    .filter(o => o.status === OrderStatus.DISPATCHED)
+    .reduce((acc, curr) => acc + curr.totalAmount, 0);
+
+  // Validation Logic
+  const getValidationData = () => {
+    const selectedOrdersList = orders.filter(o => selectedOrderIds.has(o.id));
+    const requirements: Record<string, number> = {};
+
+    selectedOrdersList.forEach(order => {
+      order.items.forEach(item => {
+        const key = item.productType;
+        // Check if we track by Cases for bottles or individual
+        // The vehicle stock for bottles seems to track "Cases" based on earlier view (ProductType matches)
+        // But let's verify mockService seed: `{ type: ProductType.BOTTLE_300ML, quantity: 50 }` <- Is this cases?
+        // In `calculateCases`, loose bottles exist. Stock usually tracks full units/cases.
+        // Let's assume stock tracks Cases for bottles and Units for Cans.
+        // Actually, `InventoryItem` has `type` and `quantity`.
+        // If `calculateCases` returns calculatedCases, we should use that for comparison if stock is in cases.
+        // Let's assume strict case matching for now.
+        const qty = item.productType === ProductType.CAN_20L ? item.quantity : (item.calculatedCases || 0);
+        requirements[key] = (requirements[key] || 0) + qty;
+      });
+    });
+
+    return Object.keys(requirements).map(type => {
+      const isCan = type === ProductType.CAN_20L;
+      const needed = requirements[type];
+      const stockItem = isCan
+        ? vehicleStock.find(s => s.type === type && s.canState === CanState.FILLED)
+        : vehicleStock.find(s => s.type === type);
+
+      const have = stockItem?.quantity || 0;
+      return { type, needed, have, sufficient: have >= needed };
+    });
+  };
+
+  const validationResults = getValidationData();
+  const allSufficient = validationResults.every(r => r.sufficient);
+
+  const confirmTrip = () => {
+    // Move all selected orders to CONFIRMED (or DISPATCHED? prompt says "select orders he is going to deliver")
+    // Let's mark them as CONFIRMED (Checked & Ready) first.
+    // Also deduct stock?
+    // The previous logic `handleStatusChange` deducted stock on CONFIRMED.
+    // So we should batch update them.
+
+    const selectedOrdersList = orders.filter(o => selectedOrderIds.has(o.id));
+
+    selectedOrdersList.forEach(order => {
+      // Reuse handleStatusChange logic or manually update
+      // We need to deduct stock.
+      order.items.forEach(item => {
+        const itemToDeduct = {
+          type: item.productType,
+          quantity: item.productType === ProductType.CAN_20L ? item.quantity : (item.calculatedCases || 0),
+          canState: item.productType === ProductType.CAN_20L ? CanState.FILLED : undefined
+        };
+        updateVehicleInventory(driverId, itemToDeduct, false);
+      });
+
+      saveOrder({ ...order, status: OrderStatus.DISPATCHED }); // Jump to Dispatched immediately? Or Confirmed?
+      // Usually: Pending -> Confirmed (Load Verified) -> Dispatched (Left Hub)
+      // Let's go to DISPATCHED to indicate "Started Trip".
+    });
+
+    loadData();
+    setShowValidation(false);
+    setSelectedOrderIds(new Set());
+    alert("Trip Started! Inventory Updated.");
+  };
+
+  return (
+    <div className="pb-24 p-4 md:p-6 bg-slate-50 min-h-screen">
+      {/* Header */}
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2 text-slate-800"><Truck className="text-[#4CAF50]" /> Delivery Partner</h1>
+          <p className="text-slate-500 text-sm">Welcome back, Driver</p>
+        </div>
+        {/* Logout removed as per request */}
+      </div>
+
+      {!selectedOrder ? (
+        <div className="space-y-6 animate-fadeIn">
+
+          {/* Summary Stats */}
+          <div className="grid grid-cols-3 gap-4">
+            <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center">
+              <Clock size={20} className="text-blue-500 mb-1" />
+              <span className="text-xl font-bold text-slate-800">{activeOrders.length}</span>
+              <span className="text-[10px] text-slate-500 uppercase tracking-wide font-bold">Pending</span>
+            </div>
+            <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center">
+              <CheckCircle size={20} className="text-green-500 mb-1" />
+              <span className="text-xl font-bold text-slate-800">{completedToday}</span>
+              <span className="text-[10px] text-slate-500 uppercase tracking-wide font-bold">Done</span>
+            </div>
+            <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center">
+              <Wallet size={20} className="text-orange-500 mb-1" />
+              <span className="text-xl font-bold text-slate-800">₹{cashToCollect}</span>
+              <span className="text-[10px] text-slate-500 uppercase tracking-wide font-bold">Collect</span>
+            </div>
+          </div>
+
+          {/* Vehicle Inventory Widget */}
+          <Card className="border-l-4 border-l-blue-500">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="font-bold text-slate-700 flex items-center gap-2"><Package size={18} /> Truck Inventory</h3>
+              <button onClick={() => setShowStockModal(true)} className="text-xs text-blue-600 font-bold hover:underline">Manage</button>
+            </div>
+
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {vehicleStock.filter(i => i.quantity > 0).length === 0 ? (
+                <p className="col-span-full text-sm text-slate-400 italic py-2">Truck is empty. Load stock to start.</p>
+              ) : (
+                vehicleStock.filter(i => i.quantity > 0).map((s, i) => (
+                  <div key={i} className={`p-2 rounded-lg flex justify-between items-center text-xs border ${s.type === ProductType.CAN_20L ? 'bg-blue-50 border-blue-100' : 'bg-slate-50 border-slate-100'}`}>
+                    <span className="font-semibold text-slate-600">
+                      {s.type.replace(' Bottle', '').replace(' Can', '')}
+                      {s.canState && <span className={`ml-1 text-[9px] px-1 rounded ${s.canState === CanState.FILLED ? 'bg-green-200 text-green-800' : 'bg-orange-200 text-orange-800'}`}>{s.canState}</span>}
+                    </span>
+                    <span className="font-bold text-slate-800 text-sm">{s.quantity}</span>
+                  </div>
+                ))
+              )}
+            </div>
+            <Button variant="secondary" onClick={() => setShowStockModal(true)} className="w-full mt-4 text-sm h-10 border-dashed border-2">Manage Stock / Load Truck</Button>
+          </Card>
+
+          {/* Active Orders List */}
+          <div>
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="font-bold text-slate-800 text-lg">Delivery Queue</h3>
+              <div className="flex gap-2">
+                <button onClick={selectAllPending} className="text-xs text-slate-500 font-bold underline">Select All Pending</button>
+                {selectedOrderIds.size > 0 && (
+                  <Button onClick={() => setShowValidation(true)} className="h-8 text-xs bg-blue-600">
+                    Validate Load ({selectedOrderIds.size})
+                  </Button>
+                )}
+              </div>
+            </div>
+            <div className="space-y-3">
+              {orders.length === 0 && <p className="text-slate-400 text-center py-8">No orders assigned yet.</p>}
+              {orders.map(order => {
+                const isPending = order.status === OrderStatus.PENDING;
+                const isDispatched = order.status === OrderStatus.DISPATCHED;
+                const isDelivered = order.status === OrderStatus.DELIVERED;
+                const isSelected = selectedOrderIds.has(order.id);
+
+                let borderClass = 'border-slate-200';
+                if (isPending) borderClass = 'border-l-4 border-l-yellow-400';
+                if (isDispatched) borderClass = 'border-l-4 border-l-blue-500';
+                if (isDelivered) borderClass = 'border-l-4 border-l-green-500 opacity-60';
+
+                return (
+                  <div
+                    key={order.id}
+                    onClick={() => { setSelectedOrder(order); setEmptyCansInput(0); }}
+                    className={`bg-white p-4 rounded-xl shadow-sm border ${borderClass} cursor-pointer hover:shadow-md transition active:scale-95 relative overflow-hidden`}
+                  >
+                    {isPending && (
+                      <div className="absolute top-0 right-0 p-3" onClick={(e) => toggleOrderSelection(order.id, e)}>
+                        <div className={`w-5 h-5 rounded border flex items-center justify-center ${isSelected ? 'bg-blue-500 border-blue-500 text-white' : 'border-slate-300 bg-white'}`}>
+                          {isSelected && <CheckCircle size={14} />}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex justify-between items-start mb-2 pr-8">
+                      <div>
+                        <h4 className="font-bold text-slate-800">{order.customerName}</h4>
+                        <div className="flex items-center gap-1 text-xs text-slate-500 mt-1">
+                          <Map size={12} /> <span className="line-clamp-1">{order.deliveryLocation}</span>
+                        </div>
+                      </div>
+                      <StatusBadge status={order.status} />
+                    </div>
+
+                    <div className="bg-slate-50 p-2 rounded-lg text-xs font-medium text-slate-600 mb-3">
+                      {order.items.map(i => `${i.productType} x${i.quantity}`).join(', ')}
+                    </div>
+
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-400 font-medium">{order.deliveryDate} • {order.deliveryTime}</span>
+                      <span className="font-bold text-slate-800 bg-green-50 px-2 py-1 rounded text-green-700">₹{order.totalAmount}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* Detailed Order View */
+        <div className="space-y-6 animate-fadeIn">
+          <button
+            onClick={() => setSelectedOrder(null)}
+            className="flex items-center gap-1 text-slate-500 font-bold hover:text-slate-800 mb-2"
+          >
+            ← Back to List
+          </button>
+
+          <Card title="Order Details" className="shadow-lg border-t-4 border-t-blue-500">
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800">{selectedOrder.customerName}</h2>
+                <StatusBadge status={selectedOrder.status} className="mt-2 text-sm" />
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-slate-400 uppercase font-bold">Order ID</p>
+                <p className="font-mono text-slate-600">#{selectedOrder.id.slice(-6)}</p>
+              </div>
+            </div>
+
+            <div className="mb-6 space-y-3">
+              <div onClick={() => openMap(selectedOrder.deliveryLocation)} className="flex items-start gap-3 p-3 bg-blue-50 rounded-lg cursor-pointer hover:bg-blue-100 transition group">
+                <div className="bg-blue-200 p-2 rounded-full text-blue-700 group-hover:bg-white group-hover:scale-110 transition"><Navigation size={20} /></div>
+                <div className="flex-1">
+                  <p className="text-xs text-blue-600 font-bold uppercase mb-1">Delivery Location</p>
+                  <p className="text-sm font-semibold text-slate-800 leading-tight">{selectedOrder.deliveryLocation}</p>
+                  <p className="text-[10px] text-blue-500 mt-1">Tap to Open Maps</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-xl mb-6 border border-slate-100">
+              <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Items Ordered</h3>
+              {selectedOrder.items.map((item, idx) => (
+                <div key={idx} className="flex justify-between border-b border-slate-200 last:border-0 py-3 text-sm">
+                  <span className="text-slate-700 font-medium">{item.productType}</span>
+                  <span className="font-bold text-slate-900">x {item.quantity}</span>
+                </div>
+              ))}
+              <div className="flex justify-between pt-3 mt-2 border-t border-slate-200">
+                <span className="text-slate-600 font-bold">Total Amount</span>
+                <span className="font-bold text-xl text-[#4CAF50]">₹{selectedOrder.totalAmount}</span>
+              </div>
+            </div>
+
+            {/* Workflow Actions */}
+            <div className="space-y-3 pt-2">
+              {selectedOrder.status === OrderStatus.PENDING && (
+                <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100 mb-4">
+                  <p className="text-xs text-yellow-800 mb-3 flex gap-2"><ShieldAlert size={14} /> Ensure you have sufficient stock before confirming.</p>
+                  <Button className="w-full h-12 text-lg shadow-xl shadow-green-100" onClick={() => handleStatusChange(selectedOrder, OrderStatus.CONFIRMED)} icon={CheckCircle}>
+                    Confirm & Load Stock
+                  </Button>
+                </div>
+              )}
+
+              {selectedOrder.status === OrderStatus.CONFIRMED && (
+                <div className="grid grid-cols-1 gap-3">
+                  <Button className="w-full py-3 bg-blue-600 hover:bg-blue-700" onClick={() => openMap(selectedOrder.deliveryLocation)} icon={Navigation}>
+                    Start Navigation
+                  </Button>
+                  <Button className="w-full py-3" onClick={() => handleStatusChange(selectedOrder, OrderStatus.DISPATCHED)} icon={Truck}>
+                    Arrived / Dispatched
+                  </Button>
+                </div>
+              )}
+
+              {selectedOrder.status === OrderStatus.DISPATCHED && (
+                <div className="bg-green-50 p-4 rounded-xl border border-green-100">
+                  <p className="text-center font-bold text-green-800 mb-4 text-lg">Collect ₹{selectedOrder.totalAmount}</p>
+
+                  <div className="mb-4 bg-white p-3 rounded border border-green-200 flex justify-between items-center">
+                    <label className="text-xs font-bold text-slate-500">Empty Cans Collected</label>
+                    <div className="flex items-center gap-3">
+                      <button onClick={() => setEmptyCansInput(Math.max(0, emptyCansInput - 1))} className="w-8 h-8 rounded bg-slate-100 font-bold hover:bg-slate-200">-</button>
+                      <span className="font-bold text-lg w-6 text-center">{emptyCansInput}</span>
+                      <button onClick={() => setEmptyCansInput(p => p + 1)} className="w-8 h-8 rounded bg-slate-100 font-bold hover:bg-slate-200">+</button>
+                    </div>
+                  </div>
+
+                  <Button className="w-full py-4 text-lg shadow-xl shadow-green-200 bg-green-600 hover:bg-green-700" onClick={() => handleStatusChange(selectedOrder, OrderStatus.DELIVERED, emptyCansInput)} icon={PackageCheck}>
+                    Mark Delivered & Paid
+                  </Button>
+                </div>
+              )}
+
+              {selectedOrder.status === OrderStatus.DELIVERED && (
+                <div className="text-center bg-slate-100 rounded-xl p-6 border border-slate-200">
+                  <div className="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-2">
+                    <CheckCircle size={24} />
+                  </div>
+                  <h3 className="font-bold text-slate-800">Order Completed</h3>
+                  <p className="text-xs text-slate-500">Cash collected and stock updated.</p>
+                </div>
+              )}
+            </div>
+
+            {(selectedOrder.status === OrderStatus.DISPATCHED || selectedOrder.status === OrderStatus.DELIVERED) && (
+              <div className="mt-6 text-center">
+                <button className="text-xs text-slate-400 underline hover:text-red-500">Report an Issue / Return Item</button>
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {/* Validation Modal */}
+      {showValidation && (
+        <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-fadeIn">
+            <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
+              <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><ShieldAlert className="text-blue-500" /> Validate Load</h3>
+              <button onClick={() => setShowValidation(false)} className="text-slate-400 hover:text-red-500">✕</button>
+            </div>
+            <div className="p-4 space-y-4">
+              <p className="text-sm text-slate-600">Ensure your vehicle has enough stock for the <strong>{selectedOrderIds.size} selected orders</strong>.</p>
+
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {validationResults.map(r => (
+                  <div key={r.type} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100">
+                    <div>
+                      <p className="font-bold text-sm text-slate-700">{r.type}</p>
+                      <p className="text-xs text-slate-500">Required: <strong>{r.needed}</strong></p>
+                    </div>
+                    <div className="text-right">
+                      <p className={`font-bold ${r.sufficient ? 'text-green-600' : 'text-red-600'}`}>
+                        Have: {r.have}
+                      </p>
+                      {r.sufficient ?
+                        <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Sufficient</span> :
+                        <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Low Stock</span>
+                      }
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {!allSufficient && (
+                <div className="bg-orange-50 p-3 rounded text-xs text-orange-800 border border-orange-200 flex items-center gap-2">
+                  <ShieldAlert size={16} /> Insufficient stock. Please load more items.
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3 mt-4">
+                <Button variant="secondary" onClick={() => setShowStockModal(true)}>Manage Stock</Button>
+                <Button onClick={confirmTrip} disabled={!allSufficient} className={!allSufficient ? 'opacity-50 cursor-not-allowed bg-slate-400' : 'bg-green-600 hover:bg-green-700 shadow-lg shadow-green-200'}>
+                  Confirm & Start
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stock Modal */}
+      {showStockModal && (
+        <VehicleStockModal
+          driverId={driverId}
+          onClose={() => setShowStockModal(false)}
+          onUpdate={loadData}
+        />
+      )}
+    </div>
+  );
+};
