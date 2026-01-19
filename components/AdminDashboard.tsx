@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Package, Users, BarChart3, TrendingUp, AlertTriangle, ShoppingCart } from 'lucide-react';
+import { Package, Users, BarChart3, TrendingUp, AlertTriangle, ShoppingCart, ClipboardList } from 'lucide-react';
 import { Card, StatusBadge } from './SharedComponents';
 import { getInventory, getOrders, getCustomers } from '../services/mockService';
 import { InventoryItem, Order, Customer, ProductType, CanState } from '../types';
@@ -46,9 +46,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <Tile title="Dashboard" icon={TrendingUp} colorClass="bg-blue-500" onClick={() => { }} />
         <Tile title="Customers" icon={Users} colorClass="bg-green-500" onClick={() => onNavigate('customers')} />
+        <Tile title="Orders" icon={ClipboardList} colorClass="bg-indigo-500" onClick={() => onNavigate('orders')} />
         <Tile title="Inventory" icon={Package} colorClass="bg-orange-500" onClick={() => onNavigate('inventory')} />
         <Tile title="Revenue" icon={BarChart3} colorClass="bg-purple-500" onClick={() => onNavigate('revenue')} />
         <Tile title="Create Order" icon={ShoppingCart} colorClass="bg-teal-500" onClick={() => onNavigate('create-order')} />

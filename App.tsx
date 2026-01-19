@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AdminDashboard } from './components/AdminDashboard';
 import { AdminInventory } from './components/AdminInventory';
 import { AdminRevenue } from './components/AdminRevenue';
+import { AdminOrders } from './components/AdminOrders';
 import { AdminCustomers } from './components/AdminCustomers'; // Import new component
 import { AdminCreateOrder } from './components/AdminCreateOrder';
 import { DeliveryDashboard } from './components/DeliveryDashboard';
@@ -12,6 +13,7 @@ import { ADMIN_CREDENTIALS, DRIVER_CREDENTIALS } from './constants';
 import { getCustomers } from './services/mockService';
 import { UserRole, Customer } from './types';
 import { Truck, Users, ShieldCheck, MapPin, Phone, LogIn } from 'lucide-react';
+
 
 const App: React.FC = () => {
   // Use pathname for top-level routing (Admin vs Customer vs Driver)
@@ -105,8 +107,9 @@ const App: React.FC = () => {
           {hash.includes('inventory') ? <AdminInventory /> :
             hash.includes('revenue') ? <AdminRevenue /> :
               hash.includes('customers') ? <AdminCustomers /> :
-                hash.includes('create-order') ? <AdminCreateOrder onBack={() => window.location.hash = ''} /> :
-                  <AdminDashboard onNavigate={(page) => window.location.hash = `#/${page}`} />}
+                hash.includes('orders') ? <AdminOrders /> :
+                  hash.includes('create-order') ? <AdminCreateOrder onBack={() => window.location.hash = ''} /> :
+                    <AdminDashboard onNavigate={(page) => window.location.hash = `#/${page}`} />}
         </main>
         <Footer />
       </div>

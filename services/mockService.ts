@@ -87,6 +87,13 @@ export const saveOrder = (order: Order) => {
   localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
 };
 
+export const deleteOrder = (orderId: string) => {
+  const orders = getOrders();
+  const updatedOrders = orders.filter(o => o.id !== orderId);
+  localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(updatedOrders));
+};
+
+
 export const getCustomers = (): Customer[] => {
   return JSON.parse(localStorage.getItem(STORAGE_KEYS.CUSTOMERS) || '[]');
 };
