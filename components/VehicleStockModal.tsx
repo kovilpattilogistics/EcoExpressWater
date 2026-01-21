@@ -15,28 +15,31 @@ export const VehicleStockModal: React.FC<VehicleStockModalProps> = ({ driverId, 
     const [items, setItems] = useState<InventoryItem[]>([]);
 
     useEffect(() => {
-        // Load current stock or initialize with 0 for all products
-        const currentStock = getVehicleInventory(driverId);
+        const loadStock = async () => {
+            // Load current stock or initialize with 0 for all products
+            const currentStock = await getVehicleInventory(driverId);
 
-        // Ensure all products are represented
-        const allProducts: InventoryItem[] = [];
+            // Ensure all products are represented
+            const allProducts: InventoryItem[] = [];
 
-        // 1. Cans (Filled & Empty)
-        const filledCan = currentStock.find(i => i.type === ProductType.CAN_20L && i.canState === CanState.FILLED);
-        allProducts.push({ type: ProductType.CAN_20L, canState: CanState.FILLED, quantity: filledCan?.quantity || 0 });
+            // 1. Cans (Filled & Empty)
+            const filledCan = currentStock.find(i => i.type === ProductType.CAN_20L && i.canState === CanState.FILLED);
+            allProducts.push({ type: ProductType.CAN_20L, canState: CanState.FILLED, quantity: filledCan?.quantity || 0 });
 
-        const emptyCan = currentStock.find(i => i.type === ProductType.CAN_20L && i.canState === CanState.EMPTY);
-        allProducts.push({ type: ProductType.CAN_20L, canState: CanState.EMPTY, quantity: emptyCan?.quantity || 0 });
+            const emptyCan = currentStock.find(i => i.type === ProductType.CAN_20L && i.canState === CanState.EMPTY);
+            allProducts.push({ type: ProductType.CAN_20L, canState: CanState.EMPTY, quantity: emptyCan?.quantity || 0 });
 
-        // 2. Bottles
-        Object.values(ProductType).forEach(type => {
-            if (type !== ProductType.CAN_20L) {
-                const stock = currentStock.find(i => i.type === type);
-                allProducts.push({ type, quantity: stock?.quantity || 0 });
-            }
-        });
+            // 2. Bottles
+            Object.values(ProductType).forEach(type => {
+                if (type !== ProductType.CAN_20L) {
+                    const stock = currentStock.find(i => i.type === type);
+                    allProducts.push({ type, quantity: stock?.quantity || 0 });
+                }
+            });
 
-        setItems(allProducts);
+            setItems(allProducts);
+        };
+        loadStock();
     }, [driverId]);
 
     const handleQuantityChange = (index: number, delta: number) => {
@@ -46,11 +49,11 @@ export const VehicleStockModal: React.FC<VehicleStockModalProps> = ({ driverId, 
         setItems(newItems);
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
         // Save each item
-        items.forEach(item => {
-            updateVehicleInventory(driverId, item, true); // true = overwrite/set exact value
-        });
+        for (const item of items) {
+            await updateVehicleInventory(driverId, item, true); // true = overwrite/set exact value
+        }
         onUpdate();
         onClose();
     };
