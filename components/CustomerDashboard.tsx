@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card, Button, Input, Select, StatusBadge } from './SharedComponents';
 import { ProductType, Order, OrderItem, OrderStatus, Customer } from '../types';
 import { PRODUCT_CONFIG } from '../constants';
-import { calculateCases, saveOrder, getOrders, calculateSmartRounding } from '../services/mockService';
+import { calculateCases, saveOrder, subscribeOrders, calculateSmartRounding } from '../services/mockService';
 import { MapPin, Clock } from 'lucide-react';
 
 interface CustomerDashboardProps {
@@ -12,6 +12,7 @@ interface CustomerDashboardProps {
 
 export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, onLogout }) => {
   const [view, setView] = useState<'ORDER' | 'HISTORY'>('ORDER');
+  const [orders, setOrders] = useState<Order[]>([]);
 
   // Order Form State
   const [productType, setProductType] = useState<ProductType>(ProductType.CAN_20L);
@@ -22,30 +23,31 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
   const [emptyReturns, setEmptyReturns] = useState(0);
   const [hasEmptyReturns, setHasEmptyReturns] = useState(false);
 
+  useEffect(() => {
+    const unsub = subscribeOrders((allOrders) => {
+      setOrders(allOrders);
+    });
+    return () => unsub();
+  }, []);
+
   // Pricing Logic
   const config = PRODUCT_CONFIG[productType];
   const pricePerUnit = customer.type === 'RETAIL' ? config.retailPrice : config.normalPrice;
-  // Calculate total price. Note: If bottles are sold by case, pricePerUnit is per case.
-  // Quantity for bottles is "bottles", but price is "case".
-  // Let's assume pricePerUnit for bottles is PER CASE.
 
   const calculation = calculateCases(productType, quantity);
   let totalPrice = 0;
 
   if (productType.includes('Bottle')) {
-    // Basic logic: Cost is based on full cases. Loose bottles might be pro-rated or rounded up.
-    // Simpler: Price * (cases + (loose > 0 ? 1 : 0))
     const totalCasesToCharge = calculation.cases + (calculation.loose > 0 ? 1 : 0);
     totalPrice = totalCasesToCharge * pricePerUnit;
   } else {
-    // Cans are unit price
     totalPrice = quantity * pricePerUnit;
   }
 
   // Smart Rounding calculation for display
   const smartRound = calculateSmartRounding(productType, quantity);
 
-  const handlePlaceOrder = () => {
+  const handlePlaceOrder = async () => {
     // Validation
     if (!date || !time) {
       alert("Please select a Delivery Date and Time.");
@@ -86,9 +88,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
         quantity: smartRound.roundedQty, // Use rounded
         calculatedCases: productType.includes('Bottle') ? calculateCases(productType, smartRound.roundedQty).cases : undefined, // Simplify logic
         pricePerUnit,
-        totalPrice: productType.includes('Bottle') ? calculateCases(productType, smartRound.roundedQty).cases * pricePerUnit : totalPrice // Re-calc total based on rounded cases? 
-        // Wait, price logic above handles basic case calc.
-        // We should recalculate totalPrice based on ROUNDED quantity.
+        totalPrice: productType.includes('Bottle') ? calculateCases(productType, smartRound.roundedQty).cases * pricePerUnit : totalPrice
       }],
       totalAmount: productType.includes('Bottle') ? calculateCases(productType, smartRound.roundedQty).cases * pricePerUnit : totalPrice,
       status: OrderStatus.PENDING,
@@ -99,7 +99,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
       emptyCansReturned: hasEmptyReturns ? emptyReturns : 0
     };
 
-    saveOrder(newOrder);
+    await saveOrder(newOrder);
     alert('Order Placed Successfully!');
     setView('HISTORY');
   };
@@ -197,7 +197,8 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
       {view === 'HISTORY' && (
         <div className="space-y-4">
           <h2 className="text-lg font-bold text-slate-800">Your Orders</h2>
-          {getOrders().filter(o => o.customerId === customer.id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map(order => (
+          <h2 className="text-lg font-bold text-slate-800">Your Orders</h2>
+          {orders.filter(o => o.customerId === customer.id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map(order => (
             <div key={order.id} className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
               <div className="flex justify-between items-start mb-2">
                 <div>
@@ -220,7 +221,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
               </div>
             </div>
           ))}
-          {getOrders().filter(o => o.customerId === customer.id).length === 0 && (
+          {orders.filter(o => o.customerId === customer.id).length === 0 && (
             <p className="text-center text-slate-400 py-8">No order history found.</p>
           )}
         </div>

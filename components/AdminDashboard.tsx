@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Package, Users, BarChart3, TrendingUp, AlertTriangle, ShoppingCart, ClipboardList } from 'lucide-react';
 import { Card, StatusBadge } from './SharedComponents';
-import { getInventory, getOrders, getCustomers } from '../services/mockService';
+import { subscribeInventory, subscribeOrders, subscribeCustomers } from '../services/mockService';
 import { InventoryItem, Order, Customer, ProductType, CanState } from '../types';
 import { LOW_STOCK_THRESHOLD_CANS, LOW_STOCK_THRESHOLD_BOTTLES } from '../constants';
 
@@ -15,9 +15,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
   const [customers, setCustomers] = useState<Customer[]>([]);
 
   useEffect(() => {
-    setInventory(getInventory());
-    setOrders(getOrders());
-    setCustomers(getCustomers());
+    const unsubInv = subscribeInventory(setInventory);
+    const unsubOrd = subscribeOrders(setOrders);
+    const unsubCust = subscribeCustomers(setCustomers);
+
+    return () => {
+      unsubInv();
+      unsubOrd();
+      unsubCust();
+    };
   }, []);
 
   // Calc Logic

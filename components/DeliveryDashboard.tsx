@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, StatusBadge } from './SharedComponents';
-import { getOrders, saveOrder, getVehicleInventory, updateVehicleInventory } from '../services/mockService';
+import { subscribeOrders, saveOrder, getVehicleInventory, updateVehicleInventory } from '../services/mockService';
 import { Order, OrderStatus, ProductType, CanState, InventoryItem } from '../types';
 import { Map, Truck, PackageCheck, CheckCircle, Navigation, Wallet, Package, Clock, ShieldAlert, Edit2, Save, X, Plus } from 'lucide-react';
 import { DRIVER_CREDENTIALS, PRODUCT_CONFIG } from '../constants';
@@ -24,11 +24,10 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
   // Mock Driver ID
   const driverId = DRIVER_CREDENTIALS.username;
 
-  const loadData = () => {
-    // Sort by Date/Time
-    const allOrders = getOrders().sort((a, b) => new Date(a.deliveryDate).getTime() - new Date(b.deliveryDate).getTime());
-    setOrders(allOrders);
-    setVehicleStock(getVehicleInventory(driverId));
+  const loadData = async () => {
+    // Orders are subscribed separately
+    const stock = await getVehicleInventory(driverId);
+    setVehicleStock(stock);
   };
 
   const toggleOrderSelection = (id: string, e: React.MouseEvent) => {
@@ -46,6 +45,11 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
 
   useEffect(() => {
     loadData();
+    const unsub = subscribeOrders((allOrders) => {
+      const sorted = allOrders.sort((a, b) => new Date(a.deliveryDate).getTime() - new Date(b.deliveryDate).getTime());
+      setOrders(sorted);
+    });
+    return () => unsub();
   }, []);
 
   // Sync editing state
@@ -56,7 +60,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
     }
   }, [selectedOrder]);
 
-  const handleStatusChange = (order: Order, newStatus: OrderStatus, emptyCansReturned?: number) => {
+  const handleStatusChange = async (order: Order, newStatus: OrderStatus, emptyCansReturned?: number) => {
     const updatedOrder = { ...order, status: newStatus, emptyCansReturned };
 
     // Inventory Logic on Confirmation
@@ -68,10 +72,9 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
           const stock = vehicleStock.find(s => s.type === ProductType.CAN_20L && s.canState === CanState.FILLED);
           if (!stock || stock.quantity < item.quantity) sufficient = false;
         } else {
-          // Bottle logic (Cases - Simplified check based on raw unit logic for now if stock tracks units, or cases)
-          // Assumption: Vehicle Stock trackers UNITS for consistency with seed data (e.g. 50 bottles)
+          // Bottle logic
           const stock = vehicleStock.find(s => s.type === item.productType);
-          if (!stock || stock.quantity < item.quantity) sufficient = false; // Using quantity directly
+          if (!stock || stock.quantity < item.quantity) sufficient = false;
         }
       });
 
@@ -81,34 +84,33 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
       }
 
       // Deduct
-      order.items.forEach(item => {
+      for (const item of order.items) {
         const itemToDeduct = {
           type: item.productType,
-          quantity: item.quantity, // Deduct Raw Quantity
+          quantity: item.quantity,
           canState: item.productType === ProductType.CAN_20L ? CanState.FILLED : undefined
         };
-        updateVehicleInventory(driverId, itemToDeduct, false);
-      });
+        await updateVehicleInventory(driverId, itemToDeduct, false);
+      }
       // Refresh local view
       loadData();
     }
 
     // Logic on Delivered (Add Empty Cans to Vehicle Stock)
     if (newStatus === OrderStatus.DELIVERED && emptyCansReturned && emptyCansReturned > 0) {
-      // Add Empty Cans to Vehicle Inventory
       const emptyCanItem = {
         type: ProductType.CAN_20L,
         quantity: emptyCansReturned,
         canState: CanState.EMPTY
       };
-      updateVehicleInventory(driverId, emptyCanItem, true); // True = Load into vehicle (collection)
+      await updateVehicleInventory(driverId, emptyCanItem, true);
       loadData();
     }
 
-    saveOrder(updatedOrder);
+    await saveOrder(updatedOrder);
 
-    // Update local state
-    setOrders(orders.map(o => o.id === order.id ? updatedOrder : o));
+    // Update local state (Optimistic, though subscription will eventually override)
+    setOrders(prev => prev.map(o => o.id === order.id ? updatedOrder : o));
     setSelectedOrder(updatedOrder);
   };
 
@@ -120,25 +122,16 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
 
     item.quantity = newQty;
     // Recalc Price
-    const config = PRODUCT_CONFIG[item.productType];
-    // Simple logic: If we assume RetailPrice is Per Unit for Cans and Per Case for Bottles?
-    // Constants say: 300ml retailPrice: 150. ItemsPerCase: 35. This suggests Price Per Case.
-    // Let's deduce Unit Price: 150 / 35 ~= 4.28.
-    // To match legacy logic, let's keep totals consistent. 
-    // We already have `item.pricePerUnit` in the order object? Let's check `types.ts` -> Yes `pricePerUnit`.
     item.totalPrice = newQty * item.pricePerUnit;
 
     newItems[idx] = item;
     setEditedItems(newItems);
   };
 
-  const saveModifiedOrder = () => {
+  const saveModifiedOrder = async () => {
     if (!selectedOrder) return;
 
     // 1. Calculate Differences for Stock
-    // Delta = Old - New. 
-    // If Delta > 0 (Quantity Reduced): Return to Truck.
-    // If Delta < 0 (Quantity Increased): Take from Truck.
     let stockError = null;
     const inventoryUpdates: { item: InventoryItem, isLoad: boolean }[] = [];
 
@@ -156,18 +149,17 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
       const stockKey = { type: newItem.productType, canState: newItem.productType === ProductType.CAN_20L ? CanState.FILLED : undefined };
 
       if (diff < 0) {
-        // Need MORE items (Take from Truck)
-        // Check availability
+        // Need MORE items (Take from Truck) -> diff is negative, needed is abs(diff)
         const needed = Math.abs(diff);
         const stock = vehicleStock.find(s => s.type === stockKey.type && s.canState === stockKey.canState);
         if (!stock || stock.quantity < needed) {
           stockError = `Insufficient stock for ${newItem.productType}. Need ${needed} more.`;
           break;
         }
-        inventoryUpdates.push({ item: { type: stockKey.type, quantity: needed, canState: stockKey.canState }, isLoad: false }); // Unload from truck (deduct)
+        inventoryUpdates.push({ item: { type: stockKey.type, quantity: needed, canState: stockKey.canState }, isLoad: false }); // Unload from truck
       } else {
-        // returning items (Load into Truck)
-        inventoryUpdates.push({ item: { type: stockKey.type, quantity: diff, canState: stockKey.canState }, isLoad: true }); // Load to truck (add)
+        // Returning items (Load into Truck) -> diff is positive
+        inventoryUpdates.push({ item: { type: stockKey.type, quantity: diff, canState: stockKey.canState }, isLoad: true }); // Load to truck
       }
     }
 
@@ -177,9 +169,9 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
     }
 
     // 2. Apply Stock Updates
-    inventoryUpdates.forEach(update => {
-      updateVehicleInventory(driverId, update.item, update.isLoad);
-    });
+    for (const update of inventoryUpdates) {
+      await updateVehicleInventory(driverId, update.item, update.isLoad);
+    }
 
     // 3. Update Order
     const updatedOrder = {
@@ -188,8 +180,9 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
       totalAmount: newTotalAmount
     };
 
-    saveOrder(updatedOrder);
-    setOrders(orders.map(o => o.id === updatedOrder.id ? updatedOrder : o));
+    await saveOrder(updatedOrder);
+    // Optimistic update
+    setOrders(prev => prev.map(o => o.id === updatedOrder.id ? updatedOrder : o));
     setSelectedOrder(updatedOrder);
     setIsEditingOrder(false);
     loadData(); // Sync stock

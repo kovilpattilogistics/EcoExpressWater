@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, History, Edit2, X } from 'lucide-react';
 import { Card, Button, Input, Select } from './SharedComponents';
-import { getInventory, updateInventory, addTransaction, getTransactions, setInventoryQuantity } from '../services/mockService';
+import { subscribeInventory, updateInventory, addTransaction, subscribeTransactions, setInventoryQuantity } from '../services/mockService';
 import { InventoryItem, ProductType, CanState, Transaction } from '../types';
 import { PRODUCT_CONFIG } from '../constants';
 
@@ -20,12 +20,18 @@ export const AdminInventory: React.FC = () => {
   const [editQuantity, setEditQuantity] = useState<number>(0);
 
   const loadData = () => {
-    setInventory(getInventory());
-    setTransactions(getTransactions().filter(t => t.category === 'STOCK_PURCHASE'));
+    // Legacy loadData removed, using subscription
   };
 
   useEffect(() => {
-    loadData();
+    const unsubInv = subscribeInventory(setInventory);
+    const unsubTrans = subscribeTransactions((allTrans) => {
+      setTransactions(allTrans.filter(t => t.category === 'STOCK_PURCHASE'));
+    });
+    return () => {
+      unsubInv();
+      unsubTrans();
+    };
   }, []);
 
   const calculateCost = () => {
@@ -63,7 +69,7 @@ export const AdminInventory: React.FC = () => {
       canState: effectiveState
     };
 
-    updateInventory(newItem, true);
+    updateInventory(newItem, true); // async
 
     if (cost > 0) {
       addTransaction({
@@ -77,7 +83,7 @@ export const AdminInventory: React.FC = () => {
     }
 
     setShowAddModal(false);
-    loadData();
+    // loadData(); // subscription updates UI
   };
 
   const handleEditClick = (item: InventoryItem) => {
@@ -94,7 +100,7 @@ export const AdminInventory: React.FC = () => {
       // For now, just silent update as per "Override" request.
 
       setEditingItem(null);
-      loadData();
+      // loadData();
     }
   };
 

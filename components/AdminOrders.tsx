@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Input, Button, StatusBadge } from './SharedComponents';
-import { getOrders, deleteOrder } from '../services/mockService';
+import { subscribeOrders, deleteOrder } from '../services/mockService';
 import { Order, OrderStatus } from '../types';
 import { Search, Trash2, Filter, AlertTriangle } from 'lucide-react';
 
@@ -10,13 +10,16 @@ export const AdminOrders: React.FC = () => {
     const [filterStatus, setFilterStatus] = useState<string>('ALL');
 
     useEffect(() => {
-        setOrders(getOrders());
+        const unsubscribe = subscribeOrders((updatedOrders) => {
+            setOrders(updatedOrders);
+        });
+        return () => unsubscribe();
     }, []);
 
-    const handleDelete = (orderId: string) => {
+    const handleDelete = async (orderId: string) => {
         if (confirm('Are you sure you want to delete this order? This action cannot be undone.')) {
-            deleteOrder(orderId);
-            setOrders(getOrders()); // Refresh list
+            await deleteOrder(orderId);
+            // orders update automatically
         }
     };
 

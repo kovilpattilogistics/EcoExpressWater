@@ -83,7 +83,7 @@ const App: React.FC = () => {
       }
     } else {
       // Customer
-      const customers = getCustomers();
+      const customers = await getCustomers();
       const foundCustomer = customers.find(c => c.email === username && c.password === password);
       if (foundCustomer) {
         setRole(UserRole.CUSTOMER);

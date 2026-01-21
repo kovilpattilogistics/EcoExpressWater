@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Input, Button, Select } from './SharedComponents';
 import { ProductType, OrderStatus, Customer } from '../types';
-import { calculateCases, saveOrder, getCustomers } from '../services/mockService';
+import { calculateCases, saveOrder, subscribeCustomers } from '../services/mockService';
 import { PRODUCT_CONFIG } from '../constants';
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -24,7 +24,8 @@ export const AdminCreateOrder: React.FC<{ onBack: () => void }> = ({ onBack }) =
     const [isSuccess, setIsSuccess] = useState(false);
 
     useEffect(() => {
-        setCustomers(getCustomers());
+        const unsub = subscribeCustomers(setCustomers);
+        return () => unsub();
     }, []);
 
     const handleCustomerSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -65,7 +66,7 @@ export const AdminCreateOrder: React.FC<{ onBack: () => void }> = ({ onBack }) =
         setItems(newItems);
     };
 
-    const handlePublish = () => {
+    const handlePublish = async () => {
         if (!customerInfo.name || !customerInfo.phone) {
             alert("Please enter customer details");
             return;
@@ -103,7 +104,7 @@ export const AdminCreateOrder: React.FC<{ onBack: () => void }> = ({ onBack }) =
 
         const grandTotal = orderItems.reduce((sum, item) => sum + item.totalPrice, 0);
 
-        saveOrder({
+        await saveOrder({
             id: `ord_${Date.now()}`,
             customerId: selectedCustomerId || `new_${Date.now()}`, // Link to existing if selected
             customerName: customerInfo.name,

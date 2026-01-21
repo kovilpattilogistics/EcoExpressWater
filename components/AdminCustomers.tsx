@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Input, Button, StatusBadge, Select } from './SharedComponents';
-import { getCustomers, saveCustomer, getOrders, deleteCustomer } from '../services/mockService';
+import { subscribeCustomers, saveCustomer, subscribeOrders, deleteCustomer } from '../services/mockService';
 import { Customer, Order } from '../types';
 import { Search, MapPin, Phone, User, ShoppingBag, ToggleLeft, ToggleRight, Plus, History, Key, Edit2, X, Trash2 } from 'lucide-react';
 import { LocationPickerMap } from './LocationPickerMap';
@@ -25,8 +25,12 @@ export const AdminCustomers: React.FC = () => {
     const [tempLocation, setTempLocation] = useState({ lat: 9.1726, lng: 77.8808 });
 
     useEffect(() => {
-        setCustomers(getCustomers());
-        setOrders(getOrders());
+        const unsubCust = subscribeCustomers(setCustomers);
+        const unsubOrd = subscribeOrders(setOrders);
+        return () => {
+            unsubCust();
+            unsubOrd();
+        };
     }, []);
 
     const toggleType = (customer: Customer, e?: React.MouseEvent) => {
@@ -34,7 +38,7 @@ export const AdminCustomers: React.FC = () => {
         const newType = customer.type === 'RETAIL' ? 'REGULAR' : 'RETAIL';
         // @ts-ignore
         const updatedCustomer: Customer = { ...customer, type: newType };
-        saveCustomer(updatedCustomer);
+        saveCustomer(updatedCustomer); // async
 
         // Update local state
         setCustomers(customers.map(c => c.id === customer.id ? updatedCustomer : c));
@@ -63,7 +67,7 @@ export const AdminCustomers: React.FC = () => {
         };
 
         saveCustomer(customerToSave);
-        setCustomers([...customers, customerToSave]);
+        // setCustomers([...customers, customerToSave]); // Subscription handles this
         setShowAddModal(false);
         setNewCustomer({ name: '', phone: '', location: '', shopName: '', type: 'REGULAR', email: '', password: '' });
     };
@@ -71,7 +75,6 @@ export const AdminCustomers: React.FC = () => {
     const handleUpdateCustomer = () => {
         if (selectedCustomer) {
             saveCustomer(selectedCustomer);
-            setCustomers(customers.map(c => c.id === selectedCustomer.id ? selectedCustomer : c));
             setIsEditing(false);
             alert("Customer updated successfully!");
         }
@@ -82,7 +85,7 @@ export const AdminCustomers: React.FC = () => {
 
         if (confirm(`Are you sure you want to PERMANENTLY delete customer "${selectedCustomer.name}"? This cannot be undone.`)) {
             deleteCustomer(selectedCustomer.id);
-            setCustomers(customers.filter(c => c.id !== selectedCustomer.id));
+            // setCustomers(...) handled by subscription
             setSelectedCustomer(null);
             setIsEditing(false);
         }

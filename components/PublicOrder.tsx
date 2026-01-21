@@ -172,7 +172,7 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
     }, { enableHighAccuracy: true });
   };
 
-  const handlePlaceOrder = () => {
+  const handlePlaceOrder = async () => {
     // 0. Validation: Mandatory Fields
     if (!date || !time) {
       alert("Please select a Delivery Date and Time.");
@@ -217,7 +217,7 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
     let customerType: 'REGULAR' | 'RETAIL' | 'PUBLIC' = 'REGULAR'; // Default for new Quick Order users is Regular (can be promoted to Retail by Admin)
 
     // Check if phone exists
-    const existingCustomer = findCustomerByPhone(customerInfo.phone);
+    const existingCustomer = await findCustomerByPhone(customerInfo.phone);
 
     if (existingCustomer) {
       console.log("Found existing customer:", existingCustomer.name);
@@ -227,7 +227,8 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
       // Prompt says "order should go to the same customer". Let's assume we just link IDs.
     } else {
       // Create New Profile
-      saveCustomer({
+      // Create New Profile
+      await saveCustomer({
         id: customerId,
         name: customerInfo.name,
         phone: customerInfo.phone,
@@ -276,7 +277,7 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
     const grandTotal = orderItems.reduce((sum, item) => sum + item.totalPrice, 0);
 
     // 3. Create Order
-    saveOrder({
+    const newOrder: Order = {
       id: Date.now().toString(),
       customerId: customerId,
       customerName: customerInfo.name,
@@ -285,10 +286,12 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
       totalAmount: grandTotal,
       status: OrderStatus.PENDING,
       deliveryLocation: customerInfo.location,
-      deliveryDate: finalDate, // Use validated/corrected date
-      deliveryTime: finalTime, // Use validated/corrected time
+      deliveryDate: finalDate,
+      deliveryTime: finalTime,
       createdAt: new Date().toISOString()
-    });
+    };
+
+    await saveOrder(newOrder);
 
     setIsSuccess(true);
   };
