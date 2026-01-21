@@ -111,6 +111,10 @@ const PriceListModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
 // ... imports
 
 export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
+  useEffect(() => {
+    console.log("🚀 APP VERSION: v3 (Timeouts & Debugging Active) 🚀");
+  }, []);
+
   const [isSuccess, setIsSuccess] = useState(false);
   const [customerInfo, setCustomerInfo] = useState({ name: '', phone: '', shop: '', location: '', lat: 9.1726, lng: 77.8808 });
   const [showMap, setShowMap] = useState(false);
