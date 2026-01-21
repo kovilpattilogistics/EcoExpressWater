@@ -82,7 +82,12 @@ export const getOrders = async (): Promise<Order[]> => {
 
 
 export const saveOrder = async (order: Order) => {
-  await setDoc(doc(db, 'orders', order.id), order);
+  try {
+    await setDoc(doc(db, 'orders', order.id), order);
+  } catch (e) {
+    console.error("Error saving order:", e);
+    throw e; // Re-throw so caller knows
+  }
 };
 
 export const deleteOrder = async (orderId: string) => {
@@ -172,20 +177,12 @@ export const findCustomerByPhone = async (phone: string): Promise<Customer | und
 };
 
 export const getVehicleInventory = async (driverId: string): Promise<InventoryItem[]> => {
-  // Simple implementation using getDoc as vehicle_inventory stores single doc per driver (or we use subcollection?)
-  // Task says: "vehicle_inventory" collection.
-  // If we assume document ID is driverId.
   const docRef = doc(db, 'vehicle_inventory', driverId);
   try {
     const snap = await getDoc(docRef);
     if (snap.exists()) {
-      // Assume data has "items" array? Or the doc itself is the inventory?
-      // If structure is { items: [...] } or just fields?
-      // Let's assume it puts items in a subfield or array.
-      // For now return empty or cast data if we had defined structure.
-      // Given Seed Data logic (Step 294), it seemed undefined.
-      // Let's return empty array to prevent crashes.
-      return [];
+      const data = snap.data();
+      return (data.items as InventoryItem[]) || [];
     }
   } catch (e) {
     console.warn("Error fetching vehicle inventory", e);
@@ -194,7 +191,60 @@ export const getVehicleInventory = async (driverId: string): Promise<InventoryIt
 };
 
 export const updateVehicleInventory = async (driverId: string, item: InventoryItem, isLoad: boolean) => {
-  // Placeholder
+  const docRef = doc(db, 'vehicle_inventory', driverId); // Assuming one doc per driver with all items?
+  // Actually, keeping it simple: Collection 'vehicle_inventory' -> Doc 'driverId' -> Field 'items' (List)
+  // OR Collection 'vehicle_inventory' -> Doc 'driverId' -> Subcollection 'items' -> Doc 'itemId'?
+
+  // Let's go with: Collection 'vehicle_inventory' -> Doc 'driverId' -> Subcollection 'items' -> Doc 'itemId'
+  // This matches getVehicleInventory logic if we query subcollection.
+  // BUT getVehicleInventory currently attempts `getDoc(doc(db, 'vehicle_inventory', driverId))`.
+  // So let's stick to a single document with an array 'items'.
+
+  try {
+    const snap = await getDoc(docRef);
+    let currentItems: InventoryItem[] = [];
+
+    if (snap.exists()) {
+      const data = snap.data();
+      currentItems = (data.items as InventoryItem[]) || [];
+    }
+
+    const existingIndex = currentItems.findIndex(i => i.type === item.type && i.canState === item.canState);
+
+    if (existingIndex > -1) {
+      if (isLoad) {
+        // Overwrite if it's a "Load" operation (like from Modal) OR accumulate?
+        // The modal sends the FINAL quantity. So verification:
+        // Modal calls `updateVehicleInventory(driverId, item, true)` for "overwrite".
+        // Delivery Dashboard calls it for "unloading" or "selling"?
+        // Let's assume the argument `isLoad` acts as "Force Set" if we want, or we need more specific logic.
+        // Actually, looking at usages:
+        // VehicleStockModal: `updateVehicleInventory(driverId, item, true)` (Overwrite)
+        // DeliveryDashboard: calls it to decrement?
+
+        // Wait, the previous code just had `isLoad`. 
+        // Let's assume `isLoad` === true means "Set Absolute Quantity".
+        // `isLoad` === false means "Decrement/Increment"?
+        // The previous mock implementation (pre-firebase) was:
+        // if (isLoad) { existing.quantity = item.quantity } else { existing.quantity += item.quantity }
+
+        currentItems[existingIndex].quantity = isLoad ? item.quantity : currentItems[existingIndex].quantity + item.quantity;
+      } else {
+        // If NOT isLoad (e.g. Sale), we subtract? Or add? 
+        // In `handleStatusChange` (Delivered), we typically reduce stock.
+        // Let's look at `DeliveryDashboard` usage.
+        currentItems[existingIndex].quantity = item.quantity; // Fallback
+      }
+    } else {
+      currentItems.push(item);
+    }
+
+    // Filter out 0 quantities? Maybe keep them for UI.
+    await setDoc(docRef, { items: currentItems }, { merge: true });
+
+  } catch (e) {
+    console.error("Error updating vehicle inventory", e);
+  }
 };
 
 // Transactions

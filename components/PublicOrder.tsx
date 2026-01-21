@@ -212,88 +212,92 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
       setTime(finalTime);
     }
 
-    // 1. Check for Existing Customer or Create New
-    let customerId = `pub_${Date.now()}`;
-    let customerType: 'REGULAR' | 'RETAIL' | 'PUBLIC' = 'REGULAR'; // Default for new Quick Order users is Regular (can be promoted to Retail by Admin)
+    try {
+      // 1. Check for Existing Customer or Create New
+      let customerId = `pub_${Date.now()}`;
+      let customerType: 'REGULAR' | 'RETAIL' | 'PUBLIC' = 'REGULAR'; // Default for new Quick Order users is Regular (can be promoted to Retail by Admin)
 
-    // Check if phone exists
-    const existingCustomer = await findCustomerByPhone(customerInfo.phone);
+      // Check if phone exists
+      const existingCustomer = await findCustomerByPhone(customerInfo.phone);
 
-    if (existingCustomer) {
-      console.log("Found existing customer:", existingCustomer.name);
-      customerId = existingCustomer.id;
-      customerType = existingCustomer.type;
-      // We don't overwrite name/location if they are existing, or maybe we update location?
-      // Prompt says "order should go to the same customer". Let's assume we just link IDs.
-    } else {
-      // Create New Profile
-      // Create New Profile
-      await saveCustomer({
-        id: customerId,
-        name: customerInfo.name,
-        phone: customerInfo.phone,
-        type: 'REGULAR', // Auto-created are Regular by default
-        location: customerInfo.location,
-        shopName: customerInfo.shop,
-        pendingAmount: 0,
-        outstandingCans: 0,
-        email: customerInfo.phone, // Default username is phone
-        password: customerInfo.phone // Default password is phone (as per request)
-      });
-    }
-
-    // 2. Prepare Order Items & Calculate Total
-    const orderItems = items.map(item => {
-      const config = PRODUCT_CONFIG[item.type];
-
-      // Smart Rounding
-      const { roundedQty, isRounded, extra } = calculateSmartRounding(item.type, item.quantity);
-      const activeQty = roundedQty; // Use rounded quantity for billing
-
-      const calculation = calculateCases(item.type, activeQty);
-
-      // Dynamic Pricing based on Customer Type
-      const pricePerUnit = customerType === 'RETAIL' ? config.retailPrice : config.normalPrice;
-
-      let itemTotal = 0;
-      if (item.type.includes('Bottle')) {
-        // Price is per case
-        itemTotal = (calculation.cases + (calculation.loose > 0 ? 1 : 0)) * pricePerUnit;
+      if (existingCustomer) {
+        console.log("Found existing customer:", existingCustomer.name);
+        customerId = existingCustomer.id;
+        customerType = existingCustomer.type;
       } else {
-        // Price is per unit
-        itemTotal = activeQty * pricePerUnit;
+        // Create New Profile
+        await saveCustomer({
+          id: customerId,
+          name: customerInfo.name,
+          phone: customerInfo.phone,
+          type: 'REGULAR', // Auto-created are Regular by default
+          location: customerInfo.location,
+          shopName: customerInfo.shop,
+          pendingAmount: 0,
+          outstandingCans: 0,
+          email: customerInfo.phone, // Default username is phone
+          password: customerInfo.phone // Default password is phone (as per request)
+        });
       }
 
-      return {
-        productType: item.type,
-        quantity: activeQty, // Save the ROUNDED quantity to the order
-        calculatedCases: item.type.includes('Bottle') ? calculation.cases + (calculation.loose > 0 ? 1 : 0) : undefined,
-        pricePerUnit,
-        totalPrice: itemTotal,
-        originalQuantity: isRounded ? item.quantity : undefined // Optional: Store original request if needed? Types doesn't have it, but for now we just save rounded.
+      // 2. Prepare Order Items & Calculate Total
+      const orderItems = items.map(item => {
+        const config = PRODUCT_CONFIG[item.type];
+
+        // Smart Rounding
+        const { roundedQty, isRounded, extra } = calculateSmartRounding(item.type, item.quantity);
+        const activeQty = roundedQty; // Use rounded quantity for billing
+
+        const calculation = calculateCases(item.type, activeQty);
+
+        // Dynamic Pricing based on Customer Type
+        const pricePerUnit = customerType === 'RETAIL' ? config.retailPrice : config.normalPrice;
+
+        let itemTotal = 0;
+        if (item.type.includes('Bottle')) {
+          // Price is per case
+          itemTotal = (calculation.cases + (calculation.loose > 0 ? 1 : 0)) * pricePerUnit;
+        } else {
+          // Price is per unit
+          itemTotal = activeQty * pricePerUnit;
+        }
+
+        return {
+          productType: item.type,
+          quantity: activeQty, // Save the ROUNDED quantity to the order
+          calculatedCases: item.type.includes('Bottle') ? calculation.cases + (calculation.loose > 0 ? 1 : 0) : undefined,
+          pricePerUnit,
+          totalPrice: itemTotal,
+          originalQuantity: isRounded ? item.quantity : undefined
+        };
+      });
+
+      const grandTotal = orderItems.reduce((sum, item) => sum + item.totalPrice, 0);
+
+      // 3. Create Order
+      const newOrder: Order = {
+        id: Date.now().toString(),
+        customerId: customerId,
+        customerName: customerInfo.name,
+        customerType: customerType,
+        items: orderItems,
+        totalAmount: grandTotal,
+        status: OrderStatus.PENDING,
+        deliveryLocation: customerInfo.location,
+        deliveryDate: finalDate,
+        deliveryTime: finalTime,
+        createdAt: new Date().toISOString()
       };
-    });
 
-    const grandTotal = orderItems.reduce((sum, item) => sum + item.totalPrice, 0);
+      console.log("Saving new order...", newOrder);
+      await saveOrder(newOrder);
+      console.log("Order saved successfully.");
 
-    // 3. Create Order
-    const newOrder: Order = {
-      id: Date.now().toString(),
-      customerId: customerId,
-      customerName: customerInfo.name,
-      customerType: customerType,
-      items: orderItems,
-      totalAmount: grandTotal,
-      status: OrderStatus.PENDING,
-      deliveryLocation: customerInfo.location,
-      deliveryDate: finalDate,
-      deliveryTime: finalTime,
-      createdAt: new Date().toISOString()
-    };
-
-    await saveOrder(newOrder);
-
-    setIsSuccess(true);
+      setIsSuccess(true);
+    } catch (error) {
+      console.error("Order Placement Failed:", error);
+      alert(`Failed to place order: ${(error as Error).message}. Please try again.`);
+    }
   };
 
   const isValid = customerInfo.name && customerInfo.phone && customerInfo.location;
