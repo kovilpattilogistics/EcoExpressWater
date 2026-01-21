@@ -172,6 +172,8 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
     }, { enableHighAccuracy: true });
   };
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const handlePlaceOrder = async () => {
     // 0. Validation: Mandatory Fields
     if (!date || !time) {
@@ -179,40 +181,42 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
       return;
     }
 
-    // 0.1 Validation: Delivery Time > 30 mins
-    const now = new Date();
-    const selectedDateTime = new Date(`${date}T${time}`);
-    const timeDiff = selectedDateTime.getTime() - now.getTime();
-    const oneHourMs = 60 * 60 * 1000;
-    const thirtyMinsMs = 30 * 60 * 1000;
-
-    let finalDate = date;
-    let finalTime = time;
-
-    // Logic: If selected time is less than 1 hour from NOW (including past), set to Now + 30 mins
-    if (timeDiff < oneHourMs) {
-      const newDeliveryTime = new Date(now.getTime() + thirtyMinsMs);
-      // Format to YYYY-MM-DD
-      const yyyy = newDeliveryTime.getFullYear();
-      const mm = String(newDeliveryTime.getMonth() + 1).padStart(2, '0');
-      const dd = String(newDeliveryTime.getDate()).padStart(2, '0');
-      finalDate = `${yyyy}-${mm}-${dd}`;
-
-      // Format to HH:MM
-      const hh = String(newDeliveryTime.getHours()).padStart(2, '0');
-      const min = String(newDeliveryTime.getMinutes()).padStart(2, '0');
-      finalTime = `${hh}:${min}`;
-
-      // Alert user if we changed it? Or just Update State?
-      // Prompt says "System should automatically set". Displaying a toast/alert is good UX.
-      alert(`Delivery time updated to ${finalTime} (minimum 30 mins preparation time).`);
-
-      // Update State so UI reflects it (optional, but good)
-      setDate(finalDate);
-      setTime(finalTime);
-    }
+    setIsSubmitting(true);
 
     try {
+      // 0.1 Validation: Delivery Time > 30 mins
+      const now = new Date();
+      const selectedDateTime = new Date(`${date}T${time}`);
+      const timeDiff = selectedDateTime.getTime() - now.getTime();
+      const oneHourMs = 60 * 60 * 1000;
+      const thirtyMinsMs = 30 * 60 * 1000;
+
+      let finalDate = date;
+      let finalTime = time;
+
+      // Logic: If selected time is less than 1 hour from NOW (including past), set to Now + 30 mins
+      if (timeDiff < oneHourMs) {
+        const newDeliveryTime = new Date(now.getTime() + thirtyMinsMs);
+        // Format to YYYY-MM-DD
+        const yyyy = newDeliveryTime.getFullYear();
+        const mm = String(newDeliveryTime.getMonth() + 1).padStart(2, '0');
+        const dd = String(newDeliveryTime.getDate()).padStart(2, '0');
+        finalDate = `${yyyy}-${mm}-${dd}`;
+
+        // Format to HH:MM
+        const hh = String(newDeliveryTime.getHours()).padStart(2, '0');
+        const min = String(newDeliveryTime.getMinutes()).padStart(2, '0');
+        finalTime = `${hh}:${min}`;
+
+        // Alert user if we changed it? Or just Update State?
+        // Prompt says "System should automatically set". Displaying a toast/alert is good UX.
+        alert(`Delivery time updated to ${finalTime} (minimum 30 mins preparation time).`);
+
+        // Update State so UI reflects it (optional, but good)
+        setDate(finalDate);
+        setTime(finalTime);
+      }
+
       // 1. Check for Existing Customer or Create New
       let customerId = `pub_${Date.now()}`;
       let customerType: 'REGULAR' | 'RETAIL' | 'PUBLIC' = 'REGULAR'; // Default for new Quick Order users is Regular (can be promoted to Retail by Admin)
@@ -296,7 +300,9 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
       setIsSuccess(true);
     } catch (error) {
       console.error("Order Placement Failed:", error);
-      alert(`Failed to place order: ${(error as Error).message}. Please try again.`);
+      alert(`Failed to place order: ${(error as Error).message}. Please ensure you are online.`);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -440,9 +446,10 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
               <Button
                 onClick={handlePlaceOrder}
                 className="w-full py-4 text-lg"
-                disabled={!isValid}
+                disabled={!isValid || isSubmitting}
+                isLoading={isSubmitting}
               >
-                {t?.placeOrderButton || "Place Order Now"}
+                {isSubmitting ? (t?.placingOrder || "Placing Order...") : (t?.placeOrderButton || "Place Order Now")}
               </Button>
               {!isValid && (
                 <p className="text-xs text-center text-red-400 mt-2">
