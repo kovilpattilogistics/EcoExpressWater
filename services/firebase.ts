@@ -8,7 +8,7 @@ const firebaseConfig = {
     storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "ecoexpresswater.firebasestorage.app",
     messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "86029449483",
     appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:86029449483:web:235a762bfb3eb509ae8a0e",
-    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-81FL6EXMSE"
+    measurementId: import.meta.env['VITE_FIREBASE_MEASUREMENT_ID'] || "G-81FL6EXMSE"
 };
 
 const app = initializeApp(firebaseConfig);
