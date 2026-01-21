@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Input, Button, StatusBadge, Select } from './SharedComponents';
-import { getCustomers, saveCustomer, getOrders } from '../services/mockService';
+import { getCustomers, saveCustomer, getOrders, deleteCustomer } from '../services/mockService';
 import { Customer, Order } from '../types';
-import { Search, MapPin, Phone, User, ShoppingBag, ToggleLeft, ToggleRight, Plus, History, Key, Edit2, X } from 'lucide-react';
+import { Search, MapPin, Phone, User, ShoppingBag, ToggleLeft, ToggleRight, Plus, History, Key, Edit2, X, Trash2 } from 'lucide-react';
 import { LocationPickerMap } from './LocationPickerMap';
 
 export const AdminCustomers: React.FC = () => {
@@ -74,6 +74,17 @@ export const AdminCustomers: React.FC = () => {
             setCustomers(customers.map(c => c.id === selectedCustomer.id ? selectedCustomer : c));
             setIsEditing(false);
             alert("Customer updated successfully!");
+        }
+    };
+
+    const handleDeleteCustomer = () => {
+        if (!selectedCustomer) return;
+
+        if (confirm(`Are you sure you want to PERMANENTLY delete customer "${selectedCustomer.name}"? This cannot be undone.`)) {
+            deleteCustomer(selectedCustomer.id);
+            setCustomers(customers.filter(c => c.id !== selectedCustomer.id));
+            setSelectedCustomer(null);
+            setIsEditing(false);
         }
     };
 
@@ -239,7 +250,14 @@ export const AdminCustomers: React.FC = () => {
                                 <Button variant="secondary" onClick={() => setIsEditing(!isEditing)} icon={Edit2} className="h-8 text-xs">
                                     {isEditing ? 'Cancel Edit' : 'Edit Profile'}
                                 </Button>
-                                <button onClick={() => { setSelectedCustomer(null); setIsEditing(false); }}><X className="text-slate-400 hover:text-red-500" /></button>
+                                <Button
+                                    onClick={handleDeleteCustomer}
+                                    className="h-8 text-xs bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 hover:text-red-700 shadow-none px-3"
+                                    icon={Trash2}
+                                >
+                                    Delete
+                                </Button>
+                                <button onClick={() => { setSelectedCustomer(null); setIsEditing(false); }} className="ml-2"><X className="text-slate-400 hover:text-red-500" /></button>
                             </div>
                         </div>
 

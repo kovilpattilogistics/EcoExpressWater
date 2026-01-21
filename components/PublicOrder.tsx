@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Input, Button, Select } from './SharedComponents';
 import { ProductType, Order, OrderStatus } from '../types';
-import { calculateCases, saveOrder, getCustomers, saveCustomer, findCustomerByPhone } from '../services/mockService';
+import { calculateCases, saveOrder, getCustomers, saveCustomer, findCustomerByPhone, calculateSmartRounding } from '../services/mockService';
 import { PRODUCT_CONFIG } from '../constants';
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -108,7 +108,9 @@ const PriceListModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
   </div>
 );
 
-export const PublicOrder: React.FC = () => {
+// ... imports
+
+export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
   const [isSuccess, setIsSuccess] = useState(false);
   const [customerInfo, setCustomerInfo] = useState({ name: '', phone: '', shop: '', location: '', lat: 9.1726, lng: 77.8808 });
   const [showMap, setShowMap] = useState(false);
@@ -171,6 +173,45 @@ export const PublicOrder: React.FC = () => {
   };
 
   const handlePlaceOrder = () => {
+    // 0. Validation: Mandatory Fields
+    if (!date || !time) {
+      alert("Please select a Delivery Date and Time.");
+      return;
+    }
+
+    // 0.1 Validation: Delivery Time > 30 mins
+    const now = new Date();
+    const selectedDateTime = new Date(`${date}T${time}`);
+    const timeDiff = selectedDateTime.getTime() - now.getTime();
+    const oneHourMs = 60 * 60 * 1000;
+    const thirtyMinsMs = 30 * 60 * 1000;
+
+    let finalDate = date;
+    let finalTime = time;
+
+    // Logic: If selected time is less than 1 hour from NOW (including past), set to Now + 30 mins
+    if (timeDiff < oneHourMs) {
+      const newDeliveryTime = new Date(now.getTime() + thirtyMinsMs);
+      // Format to YYYY-MM-DD
+      const yyyy = newDeliveryTime.getFullYear();
+      const mm = String(newDeliveryTime.getMonth() + 1).padStart(2, '0');
+      const dd = String(newDeliveryTime.getDate()).padStart(2, '0');
+      finalDate = `${yyyy}-${mm}-${dd}`;
+
+      // Format to HH:MM
+      const hh = String(newDeliveryTime.getHours()).padStart(2, '0');
+      const min = String(newDeliveryTime.getMinutes()).padStart(2, '0');
+      finalTime = `${hh}:${min}`;
+
+      // Alert user if we changed it? Or just Update State?
+      // Prompt says "System should automatically set". Displaying a toast/alert is good UX.
+      alert(`Delivery time updated to ${finalTime} (minimum 30 mins preparation time).`);
+
+      // Update State so UI reflects it (optional, but good)
+      setDate(finalDate);
+      setTime(finalTime);
+    }
+
     // 1. Check for Existing Customer or Create New
     let customerId = `pub_${Date.now()}`;
     let customerType: 'REGULAR' | 'RETAIL' | 'PUBLIC' = 'REGULAR'; // Default for new Quick Order users is Regular (can be promoted to Retail by Admin)
@@ -203,7 +244,12 @@ export const PublicOrder: React.FC = () => {
     // 2. Prepare Order Items & Calculate Total
     const orderItems = items.map(item => {
       const config = PRODUCT_CONFIG[item.type];
-      const calculation = calculateCases(item.type, item.quantity);
+
+      // Smart Rounding
+      const { roundedQty, isRounded, extra } = calculateSmartRounding(item.type, item.quantity);
+      const activeQty = roundedQty; // Use rounded quantity for billing
+
+      const calculation = calculateCases(item.type, activeQty);
 
       // Dynamic Pricing based on Customer Type
       const pricePerUnit = customerType === 'RETAIL' ? config.retailPrice : config.normalPrice;
@@ -214,15 +260,16 @@ export const PublicOrder: React.FC = () => {
         itemTotal = (calculation.cases + (calculation.loose > 0 ? 1 : 0)) * pricePerUnit;
       } else {
         // Price is per unit
-        itemTotal = item.quantity * pricePerUnit;
+        itemTotal = activeQty * pricePerUnit;
       }
 
       return {
         productType: item.type,
-        quantity: item.quantity,
+        quantity: activeQty, // Save the ROUNDED quantity to the order
         calculatedCases: item.type.includes('Bottle') ? calculation.cases + (calculation.loose > 0 ? 1 : 0) : undefined,
         pricePerUnit,
-        totalPrice: itemTotal
+        totalPrice: itemTotal,
+        originalQuantity: isRounded ? item.quantity : undefined // Optional: Store original request if needed? Types doesn't have it, but for now we just save rounded.
       };
     });
 
@@ -238,8 +285,8 @@ export const PublicOrder: React.FC = () => {
       totalAmount: grandTotal,
       status: OrderStatus.PENDING,
       deliveryLocation: customerInfo.location,
-      deliveryDate: date,
-      deliveryTime: time,
+      deliveryDate: finalDate, // Use validated/corrected date
+      deliveryTime: finalTime, // Use validated/corrected time
       createdAt: new Date().toISOString()
     });
 
@@ -253,17 +300,17 @@ export const PublicOrder: React.FC = () => {
       <div className="w-full max-w-2xl">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-[#4CAF50]">EcoExpress Logistics</h1>
-          <p className="text-slate-500 mt-2">Quick Order Form</p>
+          <p className="text-slate-500 mt-2">{t?.quickOrderTitle || "Quick Order Form"}</p>
         </div>
 
         {!isSuccess ? (
           <div className="space-y-6 animate-fadeIn">
             {/* 1. Customer Details Section */}
-            <Card title="Your Details">
+            <Card title={t?.yourDetails || "Your Details"}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input label="Name" value={customerInfo.name} onChange={e => setCustomerInfo({ ...customerInfo, name: e.target.value })} />
+                <Input label={t?.name || "Name"} value={customerInfo.name} onChange={e => setCustomerInfo({ ...customerInfo, name: e.target.value })} />
                 <Input
-                  label="Phone"
+                  label={t?.phone || "Phone"}
                   value={customerInfo.phone}
                   onChange={e => {
                     const val = e.target.value.replace(/\D/g, '');
@@ -277,11 +324,12 @@ export const PublicOrder: React.FC = () => {
               {/* Location with Map Selector */}
               <div className="relative">
                 <Input
-                  label="Location / Address"
+                  label={t?.locationLabel || "Location / Address"}
                   value={customerInfo.location}
                   onChange={e => setCustomerInfo({ ...customerInfo, location: e.target.value })}
-                  placeholder="Select from Map for accuracy"
+                  placeholder={t?.locationPlaceholder || "Select from Map for accuracy"}
                   readOnly={false} // Allow manual edit if needed
+                  className="pr-48" // Add padding for absolute buttons
                 />
                 <div className="absolute right-2 top-8 flex gap-2">
                   <button
@@ -289,28 +337,28 @@ export const PublicOrder: React.FC = () => {
                     className={`p-1 px-2 rounded-md flex items-center gap-1 text-sm font-semibold transition-colors ${isLocating ? 'bg-slate-100 text-slate-500' : 'text-blue-600 hover:bg-blue-50'}`}
                     title="Use Current Location"
                   >
-                    {isLocating ? '📡 Locating...' : '📡 GPS'}
+                    {isLocating ? '📡 Locating...' : `📡 ${t?.gps || "GPS"}`}
                   </button>
                   <button
                     onClick={() => setShowMap(true)}
                     className="text-[#4CAF50] hover:text-[#43a047] p-1 px-2 rounded-md hover:bg-green-50 flex items-center gap-1 text-sm font-semibold transition-colors"
                     title="Select from Map"
                   >
-                    <span>📍</span> Map
+                    <span>📍</span> {t?.mapButton || "Map"}
                   </button>
                 </div>
               </div>
               <p className="text-xs text-slate-400 mt-1">
-                * Use GPS or Map to ensure delivery within 10 meters accuracy.
+                * {t?.locationHint || "Use GPS or Map to ensure delivery within 10 meters accuracy."}
               </p>
 
-              <Input label="Shop Name (Optional)" value={customerInfo.shop} onChange={e => setCustomerInfo({ ...customerInfo, shop: e.target.value })} />
+              <Input label={t?.shopName || "Shop Name (Optional)"} value={customerInfo.shop} onChange={e => setCustomerInfo({ ...customerInfo, shop: e.target.value })} />
             </Card>
 
             {/* 2. Order Items Section */}
             <Card
-              title="Order Items"
-              action={<button onClick={() => setShowPriceList(true)} className="text-[#4CAF50] text-sm font-semibold hover:underline flex items-center gap-1"><Info size={16} /> View Prices</button>}
+              title={t?.orderItems || "Order Items"}
+              action={<button onClick={() => setShowPriceList(true)} className="text-[#4CAF50] text-sm font-semibold hover:underline flex items-center gap-1"><Info size={16} /> {t?.viewPrices || "View Prices"}</button>}
             >
               <div className="space-y-4 mb-6">
                 {items.map((item, index) => (
@@ -318,16 +366,16 @@ export const PublicOrder: React.FC = () => {
                     {items.length > 1 && (
                       <button
                         onClick={() => removeItem(index)}
-                        className="absolute top-2 right-2 text-slate-400 hover:text-red-500 p-1"
+                        className="absolute -top-2 -right-2 bg-white text-slate-400 hover:text-red-500 rounded-full p-1 shadow border border-slate-100 z-10"
                         title="Remove Item"
                       >
-                        ✕
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                       </button>
                     )}
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
                       <div className="md:col-span-7">
                         <Select
-                          label={index === 0 ? "Product" : ""}
+                          label={index === 0 ? (t?.product || "Product") : ""}
                           options={Object.values(ProductType).map(t => ({ value: t, label: t }))}
                           value={item.type}
                           onChange={e => updateItem(index, 'type', e.target.value)}
@@ -336,7 +384,7 @@ export const PublicOrder: React.FC = () => {
                       </div>
                       <div className="md:col-span-5">
                         <Input
-                          label={index === 0 ? "Quantity" : ""}
+                          label={index === 0 ? (t?.quantity || "Quantity") : ""}
                           type="number"
                           value={item.quantity}
                           onChange={e => updateItem(index, 'quantity', e.target.value)}
@@ -347,7 +395,20 @@ export const PublicOrder: React.FC = () => {
                     </div>
                     {item.type.includes('Bottle') && (
                       <p className="text-xs text-[#4CAF50] mt-1 text-right">
-                        {calculateCases(item.type, item.quantity).display}
+                        {(() => {
+                          const { roundedQty, isRounded, extra } = calculateSmartRounding(item.type, item.quantity);
+                          const calc = calculateCases(item.type, roundedQty);
+                          return (
+                            <div>
+                              <span className="font-bold">{calc.display}</span>
+                              {isRounded && (
+                                <span className="block text-[10px] text-blue-600">
+                                  (Rounded up from {item.quantity}. Includes {extra} extra bottles.)
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </p>
                     )}
                   </div>
@@ -355,11 +416,11 @@ export const PublicOrder: React.FC = () => {
               </div>
 
               <Button variant="secondary" onClick={addItem} className="w-full mb-6 border-dashed border-2 text-slate-500 hover:text-[#4CAF50] hover:border-[#4CAF50]">
-                + Add Another Product
+                + {t?.addProduct || "Add Another Product"}
               </Button>
 
               <div className="border-t border-slate-100 pt-6">
-                <h4 className="text-sm font-bold text-slate-700 mb-3">Preferred Delivery Time</h4>
+                <h4 className="text-sm font-bold text-slate-700 mb-3">{t?.preferredTime || "Preferred Delivery Time"}</h4>
                 <div className="flex gap-4">
                   <Input type="date" label="Date" className="flex-1 mb-0" value={date} onChange={e => setDate(e.target.value)} />
                   <Input type="time" label="Time" className="flex-1 mb-0" value={time} onChange={e => setTime(e.target.value)} />
@@ -374,11 +435,11 @@ export const PublicOrder: React.FC = () => {
                 className="w-full py-4 text-lg"
                 disabled={!isValid}
               >
-                Place Order Now
+                {t?.placeOrderButton || "Place Order Now"}
               </Button>
               {!isValid && (
                 <p className="text-xs text-center text-red-400 mt-2">
-                  Please fill in your Name, Phone and Location.
+                  {t?.fillWarning || "Please fill in your Name, Phone and Location."}
                 </p>
               )}
             </Card>
@@ -388,11 +449,13 @@ export const PublicOrder: React.FC = () => {
             <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
               <span className="text-green-500 text-5xl">✓</span>
             </div>
-            <h2 className="text-3xl font-bold text-slate-800 mb-2">Order Placed!</h2>
+            <h2 className="text-3xl font-bold text-slate-800 mb-2">{t?.orderPlaced || "Order Placed!"}</h2>
             <p className="text-slate-500 mb-8 max-w-xs mx-auto">
-              Thank you, {customerInfo.name}. We have received your order and will contact you shortly at {customerInfo.phone}.
+              {t?.thankYouMsg ? t.thankYouMsg.replace('{name}', customerInfo.name) : `Thank you, ${customerInfo.name}. We have received your order and will contact you shortly.`}
             </p>
-            <Button className="w-full max-w-xs mx-auto" variant="secondary" onClick={() => window.location.reload()}>Place Another Order</Button>
+            <Button className="w-full max-w-xs mx-auto" variant="secondary" onClick={() => window.location.reload()}>
+              {t?.placeAnother || "Place Another Order"}
+            </Button>
           </Card>
         )}
 

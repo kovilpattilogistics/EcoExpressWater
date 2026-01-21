@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Card, Button, StatusBadge } from './SharedComponents';
 import { getOrders, saveOrder, getVehicleInventory, updateVehicleInventory } from '../services/mockService';
 import { Order, OrderStatus, ProductType, CanState, InventoryItem } from '../types';
-import { Map, Truck, PackageCheck, CheckCircle, Navigation, Wallet, Package, Clock, ShieldAlert } from 'lucide-react';
-import { DRIVER_CREDENTIALS } from '../constants';
+import { Map, Truck, PackageCheck, CheckCircle, Navigation, Wallet, Package, Clock, ShieldAlert, Edit2, Save, X, Plus } from 'lucide-react';
+import { DRIVER_CREDENTIALS, PRODUCT_CONFIG } from '../constants';
 import { VehicleStockModal } from './VehicleStockModal';
 
 export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
@@ -14,7 +14,12 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [showValidation, setShowValidation] = useState(false);
 
+  // Modification State
+  const [isEditingOrder, setIsEditingOrder] = useState(false);
+  const [editedItems, setEditedItems] = useState<Order['items']>([]);
+
   const [emptyCansInput, setEmptyCansInput] = useState(0);
+  const [showAddModal, setShowAddModal] = useState(false);
 
   // Mock Driver ID
   const driverId = DRIVER_CREDENTIALS.username;
@@ -43,6 +48,14 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
     loadData();
   }, []);
 
+  // Sync editing state
+  useEffect(() => {
+    if (selectedOrder) {
+      setEditedItems(selectedOrder.items);
+      setIsEditingOrder(false);
+    }
+  }, [selectedOrder]);
+
   const handleStatusChange = (order: Order, newStatus: OrderStatus, emptyCansReturned?: number) => {
     const updatedOrder = { ...order, status: newStatus, emptyCansReturned };
 
@@ -55,9 +68,10 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
           const stock = vehicleStock.find(s => s.type === ProductType.CAN_20L && s.canState === CanState.FILLED);
           if (!stock || stock.quantity < item.quantity) sufficient = false;
         } else {
-          // Bottle logic (Cases)
+          // Bottle logic (Cases - Simplified check based on raw unit logic for now if stock tracks units, or cases)
+          // Assumption: Vehicle Stock trackers UNITS for consistency with seed data (e.g. 50 bottles)
           const stock = vehicleStock.find(s => s.type === item.productType);
-          if (!stock || stock.quantity < (item.calculatedCases || 0)) sufficient = false;
+          if (!stock || stock.quantity < item.quantity) sufficient = false; // Using quantity directly
         }
       });
 
@@ -70,7 +84,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
       order.items.forEach(item => {
         const itemToDeduct = {
           type: item.productType,
-          quantity: item.productType === ProductType.CAN_20L ? item.quantity : (item.calculatedCases || 1),
+          quantity: item.quantity, // Deduct Raw Quantity
           canState: item.productType === ProductType.CAN_20L ? CanState.FILLED : undefined
         };
         updateVehicleInventory(driverId, itemToDeduct, false);
@@ -98,6 +112,90 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
     setSelectedOrder(updatedOrder);
   };
 
+  // --- Order Modification Logic ---
+  const handleQuantityEdit = (idx: number, delta: number) => {
+    const newItems = [...editedItems];
+    const item = { ...newItems[idx] };
+    const newQty = Math.max(0, item.quantity + delta);
+
+    item.quantity = newQty;
+    // Recalc Price
+    const config = PRODUCT_CONFIG[item.productType];
+    // Simple logic: If we assume RetailPrice is Per Unit for Cans and Per Case for Bottles?
+    // Constants say: 300ml retailPrice: 150. ItemsPerCase: 35. This suggests Price Per Case.
+    // Let's deduce Unit Price: 150 / 35 ~= 4.28.
+    // To match legacy logic, let's keep totals consistent. 
+    // We already have `item.pricePerUnit` in the order object? Let's check `types.ts` -> Yes `pricePerUnit`.
+    item.totalPrice = newQty * item.pricePerUnit;
+
+    newItems[idx] = item;
+    setEditedItems(newItems);
+  };
+
+  const saveModifiedOrder = () => {
+    if (!selectedOrder) return;
+
+    // 1. Calculate Differences for Stock
+    // Delta = Old - New. 
+    // If Delta > 0 (Quantity Reduced): Return to Truck.
+    // If Delta < 0 (Quantity Increased): Take from Truck.
+    let stockError = null;
+    const inventoryUpdates: { item: InventoryItem, isLoad: boolean }[] = [];
+
+    const newTotalAmount = editedItems.reduce((sum, item) => sum + item.totalPrice, 0);
+
+    for (let i = 0; i < editedItems.length; i++) {
+      const newItem = editedItems[i];
+      const oldItem = selectedOrder.items.find(x => x.productType === newItem.productType);
+
+      const oldQty = oldItem ? oldItem.quantity : 0;
+      const diff = oldQty - newItem.quantity;
+
+      if (diff === 0) continue;
+
+      const stockKey = { type: newItem.productType, canState: newItem.productType === ProductType.CAN_20L ? CanState.FILLED : undefined };
+
+      if (diff < 0) {
+        // Need MORE items (Take from Truck)
+        // Check availability
+        const needed = Math.abs(diff);
+        const stock = vehicleStock.find(s => s.type === stockKey.type && s.canState === stockKey.canState);
+        if (!stock || stock.quantity < needed) {
+          stockError = `Insufficient stock for ${newItem.productType}. Need ${needed} more.`;
+          break;
+        }
+        inventoryUpdates.push({ item: { type: stockKey.type, quantity: needed, canState: stockKey.canState }, isLoad: false }); // Unload from truck (deduct)
+      } else {
+        // returning items (Load into Truck)
+        inventoryUpdates.push({ item: { type: stockKey.type, quantity: diff, canState: stockKey.canState }, isLoad: true }); // Load to truck (add)
+      }
+    }
+
+    if (stockError) {
+      alert(stockError);
+      return;
+    }
+
+    // 2. Apply Stock Updates
+    inventoryUpdates.forEach(update => {
+      updateVehicleInventory(driverId, update.item, update.isLoad);
+    });
+
+    // 3. Update Order
+    const updatedOrder = {
+      ...selectedOrder,
+      items: editedItems,
+      totalAmount: newTotalAmount
+    };
+
+    saveOrder(updatedOrder);
+    setOrders(orders.map(o => o.id === updatedOrder.id ? updatedOrder : o));
+    setSelectedOrder(updatedOrder);
+    setIsEditingOrder(false);
+    loadData(); // Sync stock
+    alert("Order Modified & Stock Updated");
+  };
+
   const openMap = (location: string) => {
     window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`, '_blank');
   };
@@ -120,15 +218,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
     selectedOrdersList.forEach(order => {
       order.items.forEach(item => {
         const key = item.productType;
-        // Check if we track by Cases for bottles or individual
-        // The vehicle stock for bottles seems to track "Cases" based on earlier view (ProductType matches)
-        // But let's verify mockService seed: `{ type: ProductType.BOTTLE_300ML, quantity: 50 }` <- Is this cases?
-        // In `calculateCases`, loose bottles exist. Stock usually tracks full units/cases.
-        // Let's assume stock tracks Cases for bottles and Units for Cans.
-        // Actually, `InventoryItem` has `type` and `quantity`.
-        // If `calculateCases` returns calculatedCases, we should use that for comparison if stock is in cases.
-        // Let's assume strict case matching for now.
-        const qty = item.productType === ProductType.CAN_20L ? item.quantity : (item.calculatedCases || 0);
+        const qty = item.quantity; // Use Raw Quantity
         requirements[key] = (requirements[key] || 0) + qty;
       });
     });
@@ -149,12 +239,6 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
   const allSufficient = validationResults.every(r => r.sufficient);
 
   const confirmTrip = () => {
-    // Move all selected orders to CONFIRMED (or DISPATCHED? prompt says "select orders he is going to deliver")
-    // Let's mark them as CONFIRMED (Checked & Ready) first.
-    // Also deduct stock?
-    // The previous logic `handleStatusChange` deducted stock on CONFIRMED.
-    // So we should batch update them.
-
     const selectedOrdersList = orders.filter(o => selectedOrderIds.has(o.id));
 
     selectedOrdersList.forEach(order => {
@@ -163,15 +247,13 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
       order.items.forEach(item => {
         const itemToDeduct = {
           type: item.productType,
-          quantity: item.productType === ProductType.CAN_20L ? item.quantity : (item.calculatedCases || 0),
+          quantity: item.quantity,
           canState: item.productType === ProductType.CAN_20L ? CanState.FILLED : undefined
         };
         updateVehicleInventory(driverId, itemToDeduct, false);
       });
 
-      saveOrder({ ...order, status: OrderStatus.DISPATCHED }); // Jump to Dispatched immediately? Or Confirmed?
-      // Usually: Pending -> Confirmed (Load Verified) -> Dispatched (Left Hub)
-      // Let's go to DISPATCHED to indicate "Started Trip".
+      saveOrder({ ...order, status: OrderStatus.DISPATCHED });
     });
 
     loadData();
@@ -336,17 +418,62 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
             </div>
 
             <div className="bg-slate-50 p-4 rounded-xl mb-6 border border-slate-100">
-              <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Items Ordered</h3>
-              {selectedOrder.items.map((item, idx) => (
-                <div key={idx} className="flex justify-between border-b border-slate-200 last:border-0 py-3 text-sm">
-                  <span className="text-slate-700 font-medium">{item.productType}</span>
-                  <span className="font-bold text-slate-900">x {item.quantity}</span>
-                </div>
-              ))}
-              <div className="flex justify-between pt-3 mt-2 border-t border-slate-200">
-                <span className="text-slate-600 font-bold">Total Amount</span>
-                <span className="font-bold text-xl text-[#4CAF50]">₹{selectedOrder.totalAmount}</span>
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-xs font-bold text-slate-400 uppercase">Items Ordered</h3>
+                {selectedOrder.status === OrderStatus.DISPATCHED && !isEditingOrder && (
+                  <button onClick={() => setIsEditingOrder(true)} className="text-blue-600 text-xs font-bold flex items-center gap-1 hover:underline">
+                    <Edit2 size={12} /> Modify
+                  </button>
+                )}
+                {isEditingOrder && (
+                  <div className="flex gap-2">
+                    <button onClick={() => setIsEditingOrder(false)} className="text-slate-400 text-xs font-bold hover:text-slate-600">Cancel</button>
+                    <button onClick={saveModifiedOrder} className="text-green-600 text-xs font-bold flex items-center gap-1 hover:text-green-700">
+                      <Save size={12} /> Save
+                    </button>
+                  </div>
+                )}
               </div>
+
+              {isEditingOrder ? (
+                // Editing Mode
+                <div className="space-y-4">
+                  {editedItems.map((item, idx) => (
+                    <div key={idx} className="flex justify-between items-center bg-white p-3 rounded border border-slate-200">
+                      <span className="text-slate-700 text-sm font-medium">{item.productType}</span>
+                      <div className="flex items-center gap-3">
+                        <button onClick={() => handleQuantityEdit(idx, -1)} className="w-7 h-7 bg-slate-100 rounded hover:bg-slate-200 font-bold text-slate-600">-</button>
+                        <span className="font-bold text-slate-900 w-6 text-center">{item.quantity}</span>
+                        <button onClick={() => handleQuantityEdit(idx, 1)} className="w-7 h-7 bg-slate-100 rounded hover:bg-slate-200 font-bold text-slate-600">+</button>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="flex justify-between pt-3 mt-2 border-t border-slate-200">
+                    <span className="text-slate-500 font-bold">New Total</span>
+                    <span className="font-bold text-xl text-blue-600">₹{editedItems.reduce((sum, i) => sum + i.totalPrice, 0)}</span>
+                  </div>
+
+                  <div className="mt-4">
+                    <Button variant="secondary" onClick={() => setShowAddModal(true)} className="w-full border-dashed text-blue-600 border-blue-200 hover:border-blue-500 hover:bg-blue-50" icon={Plus}>
+                      Add Another Product
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                // Read Only Mode
+                <>
+                  {selectedOrder.items.map((item, idx) => (
+                    <div key={idx} className="flex justify-between border-b border-slate-200 last:border-0 py-3 text-sm">
+                      <span className="text-slate-700 font-medium">{item.productType}</span>
+                      <span className="font-bold text-slate-900">x {item.quantity}</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between pt-3 mt-2 border-t border-slate-200">
+                    <span className="text-slate-600 font-bold">Total Amount</span>
+                    <span className="font-bold text-xl text-[#4CAF50]">₹{selectedOrder.totalAmount}</span>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Workflow Actions */}
@@ -371,7 +498,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
                 </div>
               )}
 
-              {selectedOrder.status === OrderStatus.DISPATCHED && (
+              {selectedOrder.status === OrderStatus.DISPATCHED && !isEditingOrder && (
                 <div className="bg-green-50 p-4 rounded-xl border border-green-100">
                   <p className="text-center font-bold text-green-800 mb-4 text-lg">Collect ₹{selectedOrder.totalAmount}</p>
 
@@ -465,6 +592,54 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
           onClose={() => setShowStockModal(false)}
           onUpdate={loadData}
         />
+      )}
+
+      {/* Add Product Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 z-[110] flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
+              <h3 className="font-bold text-lg text-slate-800">Add Product</h3>
+              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-red-500">✕</button>
+            </div>
+            <div className="p-4 grid gap-3">
+              {Object.values(PRODUCT_CONFIG).map((p) => {
+                const isAdded = editedItems.some(i => i.productType === p.type);
+                if (isAdded) return null; // Already in list
+
+                return (
+                  <button
+                    key={p.type}
+                    onClick={() => {
+                      const newItem = {
+                        productType: p.type,
+                        quantity: 1,
+                        pricePerUnit: p.normalPrice, // Default to Normal Price
+                        totalPrice: p.normalPrice
+                      };
+                      // Add to list, but check if we need to convert to 'Bottle Case' logic if needed? 
+                      // Currently `PRODUCT_CONFIG` has `itemsPerCase`. 
+                      // Our `Order` items usually track 'quantity' as Cases for bottles?
+                      // Let's check `calculateCases`.
+                      // In `PublicOrder`, we used: `calc.cases`.
+                      // Here we simply add 1 unit (Case or Can).
+
+                      setEditedItems([...editedItems, newItem]);
+                      setShowAddModal(false);
+                    }}
+                    className="flex justify-between items-center p-3 rounded-lg border border-slate-200 hover:border-[#4CAF50] hover:bg-green-50 transition text-left"
+                  >
+                    <span className="font-medium text-slate-700">{p.type}</span>
+                    <Plus size={18} className="text-[#4CAF50]" />
+                  </button>
+                );
+              })}
+              {Object.values(PRODUCT_CONFIG).every(p => editedItems.some(i => i.productType === p.type)) && (
+                <p className="text-center text-slate-400 text-sm py-4">All products already added.</p>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

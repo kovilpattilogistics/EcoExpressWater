@@ -39,10 +39,10 @@ export const AdminOrders: React.FC = () => {
                 </div>
                 <div className="flex gap-2 w-full md:w-auto">
                     <div className="relative flex-grow md:w-64">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 z-10" size={18} />
                         <Input
-                            className="pl-10 mb-0"
-                            placeholder="Search Order ID or Customer..."
+                            className="pl-10 mb-0 w-full"
+                            placeholder="Search Order ID..."
                             value={searchTerm}
                             onChange={e => setSearchTerm(e.target.value)}
                         />

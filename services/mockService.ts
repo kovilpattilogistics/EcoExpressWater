@@ -72,6 +72,22 @@ export const updateInventory = (newItem: InventoryItem, isAddition: boolean) => 
   localStorage.setItem(STORAGE_KEYS.INVENTORY, JSON.stringify(inventory));
 };
 
+export const setInventoryQuantity = (item: InventoryItem) => {
+  const inventory = getInventory();
+  const existingItemIndex = inventory.findIndex(
+    i => i.type === item.type && i.canState === item.canState
+  );
+
+  if (existingItemIndex > -1) {
+    inventory[existingItemIndex].quantity = item.quantity;
+  } else {
+    inventory.push(item);
+  }
+
+  localStorage.setItem(STORAGE_KEYS.INVENTORY, JSON.stringify(inventory));
+};
+
+
 export const getOrders = (): Order[] => {
   return JSON.parse(localStorage.getItem(STORAGE_KEYS.ORDERS) || '[]');
 };
@@ -113,6 +129,33 @@ export const findCustomerByPhone = (phone: string): Customer | undefined => {
   const customers = getCustomers();
   return customers.find(c => c.phone === phone);
 };
+
+export const deleteCustomer = (customerId: string) => {
+  // 1. Remove Customer Record
+  const customers = getCustomers();
+  const updatedCustomers = customers.filter(c => c.id !== customerId);
+  localStorage.setItem(STORAGE_KEYS.CUSTOMERS, JSON.stringify(updatedCustomers));
+
+  // 2. Anonymize Order History
+  const orders = getOrders();
+  let ordersChanged = false;
+  const updatedOrders = orders.map(order => {
+    if (order.customerId === customerId) {
+      ordersChanged = true;
+      return {
+        ...order,
+        customerName: 'Deleted Customer',
+        customerId: 'deleted_user'
+      };
+    }
+    return order;
+  });
+
+  if (ordersChanged) {
+    localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(updatedOrders));
+  }
+};
+
 
 export const getVehicleInventory = (driverId: string): InventoryItem[] => {
   const allVehicles = JSON.parse(localStorage.getItem(STORAGE_KEYS.VEHICLE_INVENTORY) || '{}');
@@ -181,4 +224,26 @@ export const calculateCases = (productType: ProductType, quantity: number): { ca
   }
 
   return { cases, loose, display };
+};
+
+export const calculateSmartRounding = (productType: ProductType, quantity: number): { roundedQty: number, isRounded: boolean, originalQty: number, extra: number } => {
+  const config = PRODUCT_CONFIG[productType];
+  // Only applies to Bottles with defined itemsPerCase
+  if (!config.itemsPerCase || !productType.includes('Bottle')) {
+    return { roundedQty: quantity, isRounded: false, originalQty: quantity, extra: 0 };
+  }
+
+  const itemsPerCase = config.itemsPerCase;
+
+  // Rule: If quantity > 1 case (itemsPerCase), round up to next case.
+  if (quantity > itemsPerCase) {
+    const cases = Math.ceil(quantity / itemsPerCase);
+    const roundedQty = cases * itemsPerCase;
+
+    if (roundedQty !== quantity) {
+      return { roundedQty, isRounded: true, originalQty: quantity, extra: roundedQty - quantity };
+    }
+  }
+
+  return { roundedQty: quantity, isRounded: false, originalQty: quantity, extra: 0 };
 };
