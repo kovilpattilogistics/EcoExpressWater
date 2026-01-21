@@ -294,13 +294,21 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
       };
 
       console.log("Saving new order...", newOrder);
-      await saveOrder(newOrder);
+
+      // Wrap saveOrder in a timeout to prevent infinite hanging if network/Firestore is blocked
+      const savePromise = saveOrder(newOrder);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Network timeout. Please check your internet connection or disable AdBlockers.")), 15000)
+      );
+
+      await Promise.race([savePromise, timeoutPromise]);
+
       console.log("Order saved successfully.");
 
       setIsSuccess(true);
     } catch (error) {
       console.error("Order Placement Failed:", error);
-      alert(`Failed to place order: ${(error as Error).message}. Please ensure you are online.`);
+      alert(`Failed to place order: ${(error as Error).message}. \n\nTip: If you are using an AdBlocker, please disable it for this site.`);
     } finally {
       setIsSubmitting(false);
     }
