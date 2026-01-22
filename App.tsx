@@ -8,11 +8,13 @@ import { AdminCreateOrder } from './components/AdminCreateOrder';
 import { DeliveryDashboard } from './components/DeliveryDashboard';
 import { CustomerDashboard } from './components/CustomerDashboard';
 import { PublicOrder } from './components/PublicOrder';
-import { Input, Button, Card } from './components/SharedComponents';
+import { PublicLanding } from './components/PublicLanding';
+import { WelcomePage } from './components/WelcomePage';
+import { Input, Button } from './components/SharedComponents';
 import { ADMIN_CREDENTIALS, DRIVER_CREDENTIALS } from './constants';
 import { getCustomers } from './services/firestoreService';
 import { UserRole, Customer } from './types';
-import { Truck, Users, ShieldCheck, MapPin, Phone, LogIn, Globe, Clock, Star, CheckCircle, Zap, Recycle, Smartphone } from 'lucide-react';
+import { Truck, Users, ShieldCheck, MapPin, Phone, LogIn, Globe } from 'lucide-react';
 import { TRANSLATIONS, Language } from './constants/translations';
 
 const App: React.FC = () => {
@@ -62,7 +64,7 @@ const App: React.FC = () => {
   let targetRole = UserRole.CUSTOMER; // Default
   if (pathname.startsWith('/admin')) targetRole = UserRole.ADMIN;
   else if (pathname.startsWith('/delivery-partner')) targetRole = UserRole.DELIVERY_PARTNER;
-  else targetRole = UserRole.CUSTOMER; // Default fallback as requested
+  else targetRole = UserRole.CUSTOMER; // Default fallback (includes /public)
 
   const handleLogin = async () => {
     setIsLoading(true);
@@ -148,7 +150,20 @@ const App: React.FC = () => {
     );
   }
 
-  // 2. Unauthenticated Login Views (Based on targetRole)
+  // 2. Unauthenticated Views
+
+  // New: Welcome Page at Root (/) if no specific hash
+  // Only show if strictly at root and not quick-order
+  if (pathname === '/' && !hash) {
+    return (
+      <WelcomePage onEnter={() => {
+        // Navigate to /public
+        window.history.pushState({}, '', '/public');
+        // Trigger state update
+        setPathname('/public');
+      }} />
+    );
+  }
 
   // Quick Order route check
   if (hash.includes('quick-order') || pathname.includes('quick-order')) {
@@ -195,95 +210,8 @@ const App: React.FC = () => {
 
       <div className="flex-grow flex items-center justify-center p-4">
         {targetRole === UserRole.CUSTOMER && !hash.includes('login') ? (
-          // Customer Landing View (V3: Clean & Integrated)
-          <div className="w-full max-w-lg flex flex-col items-center animate-fadeIn pb-12 pt-6 relative">
-
-            {/* Background Water Image - Fixed Position */}
-            <div className="fixed inset-0 z-0 opacity-30 pointer-events-none">
-              <img src="/water-bg.png" alt="" className="w-full h-full object-cover" />
-            </div>
-
-            {/* Main Content */}
-            <div className="relative z-10 w-full flex flex-col items-center">
-
-              {/* 1. Integrated Info Row */}
-              <div className="flex justify-center items-center gap-3 mb-8 w-full px-4 flex-wrap">
-                <div className="flex items-center gap-1.5 bg-green-50/90 backdrop-blur-sm text-green-700 px-3 py-1 rounded-full text-[10px] md:text-xs font-bold border border-green-200">
-                  <Clock size={12} className="animate-pulse" />
-                  {t.hours}
-                </div>
-                <div className="flex items-center gap-1.5 bg-yellow-50/90 backdrop-blur-sm text-yellow-700 px-3 py-1 rounded-full text-[10px] md:text-xs font-bold border border-yellow-200">
-                  <Star size={12} fill="currentColor" />
-                  {t.customers50}
-                </div>
-              </div>
-
-              {/* 2. Unified Hero */}
-              <div className="text-center px-4 mb-8">
-                <div className="mb-6 relative w-32 h-32 bg-white rounded-full p-6 shadow-2xl shadow-slate-100 flex items-center justify-center mx-auto border-[6px] border-slate-50">
-                  <img src="/logo.png" alt="EcoExpress" className="w-full h-auto object-contain" />
-                </div>
-
-                <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-2 tracking-tight drop-shadow-sm">
-                  {t.thirsty}
-                </h1>
-                <span className="text-xl md:text-2xl font-bold text-[#4CAF50] block mb-6 drop-shadow-sm">{t.getWaterNow}</span>
-
-                {/* Trust Badges - Row */}
-                <div className="flex justify-center gap-3 mb-8">
-                  <div className="flex items-center gap-1 px-2 py-1 bg-white/90 backdrop-blur-md rounded text-[10px] font-bold text-slate-500 uppercase tracking-wide border border-slate-200 shadow-sm">
-                    <ShieldCheck size={12} className="text-[#4CAF50]" /> {t.isi}
-                  </div>
-                  <div className="flex items-center gap-1 px-2 py-1 bg-white/90 backdrop-blur-md rounded text-[10px] font-bold text-slate-500 uppercase tracking-wide border border-slate-200 shadow-sm">
-                    <ShieldCheck size={12} className="text-[#4CAF50]" /> {t.fssai}
-                  </div>
-                </div>
-
-                {/* CTA Area */}
-                <div className="w-full max-w-xs mx-auto flex flex-col gap-3">
-                  <Button
-                    className="w-full py-4 text-lg font-bold shadow-lg shadow-green-200/80 hover:shadow-green-300 transform transition active:scale-95"
-                    onClick={() => window.location.href = '#/quick-order'}
-                  >
-                    {t.placeQuickOrder}
-                  </Button>
-
-                  <p className="text-[10px] text-slate-600 font-bold flex items-center justify-center gap-1 bg-white/60 py-1 rounded-full backdrop-blur-sm">
-                    <Zap size={10} className="text-orange-400 fill-orange-400" /> {t.urgency}
-                  </p>
-
-                  <div className="relative flex items-center justify-center my-3">
-                    <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-300/50"></div></div>
-                    <span className="relative bg-transparent px-2 text-slate-500 text-[10px] uppercase font-bold backdrop-blur-sm rounded">{t.or}</span>
-                  </div>
-
-                  <button
-                    onClick={() => window.location.hash = '#/login'}
-                    className="w-full py-2 flex items-center justify-center gap-2 text-slate-600 font-bold text-sm bg-white/90 backdrop-blur-sm border border-slate-200 rounded-lg hover:border-[#4CAF50] hover:text-[#4CAF50] transition shadow-sm"
-                  >
-                    <LogIn size={14} /> {t.loginToAccount}
-                  </button>
-                </div>
-              </div>
-
-              {/* 3. Features - Clean Cards */}
-              <div className="w-full px-6 max-w-md">
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { icon: Truck, text: t.featDelivery, color: "text-blue-500", border: "border-blue-100", bg: "bg-white/90 backdrop-blur-sm" },
-                    { icon: Recycle, text: t.featPickup, color: "text-green-500", border: "border-green-100", bg: "bg-white/90 backdrop-blur-sm" },
-                    { icon: Smartphone, text: t.featEasy, color: "text-purple-500", border: "border-purple-100", bg: "bg-white/90 backdrop-blur-sm" },
-                  ].map((feat, i) => (
-                    <div key={i} className={`flex flex-col items-center p-2 rounded-xl border ${feat.border} ${feat.bg} text-center shadow-sm`}>
-                      <feat.icon size={18} className={`mb-1 ${feat.color}`} />
-                      <span className="text-[10px] font-bold text-slate-600 leading-tight">{feat.text}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-          </div>
+          // Public Landing View (Moved from inline)
+          <PublicLanding t={t} />
         ) : (
           // Standard Login Card (Admin / Partner / Customer Login Mode)
           <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden animate-fadeIn">
@@ -340,7 +268,11 @@ const App: React.FC = () => {
               {targetRole === UserRole.CUSTOMER && (
                 <div className="mt-6 text-center border-t border-slate-100 pt-4">
                   <button
-                    onClick={() => window.location.hash = ''} // Go back to landing
+                    onClick={() => {
+                      // Go back to landing (clear hash)
+                      window.location.hash = '';
+                      // If we are at /public, header is fine.
+                    }}
                     className="text-sm text-slate-500 hover:text-[#4CAF50]"
                   >
                     {t.backToHome}
@@ -383,7 +315,11 @@ const Header: React.FC<{ role?: string, onLogout: () => void, userName?: string,
       {/* Center: Logo */}
       <div
         className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 cursor-pointer"
-        onClick={() => window.location.href = '/'}
+        onClick={() => {
+          // Should logo go to Welcome or Public? Usually Public Home.
+          // Let's set it to /public to avoid going back to splash screen.
+          window.location.href = '/public';
+        }}
       >
         <img src="/logo.png" alt="EcoExpress Logistics" className="h-20 w-auto object-contain" />
       </div>
