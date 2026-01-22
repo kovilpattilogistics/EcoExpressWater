@@ -58,9 +58,10 @@ export interface Customer {
 export interface OrderItem {
   productType: ProductType;
   quantity: number; // Raw quantity (bottles or cans)
-  calculatedCases?: number; // Helper for display
+  calculatedCases?: number | null; // Helper for display
   pricePerUnit: number;
   totalPrice: number;
+  originalQuantity?: number | null;
 }
 
 export interface Order {
