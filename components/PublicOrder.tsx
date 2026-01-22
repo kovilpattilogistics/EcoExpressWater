@@ -141,6 +141,29 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
     return `${hh}:${mm}`;
   });
 
+  // Network & Config Health Check
+  const [networkStatus, setNetworkStatus] = useState<{ isOnline: boolean, firebaseConfigured: boolean } | null>(null);
+
+  useEffect(() => {
+    // Simple check on mount
+    const hasKeys = !!import.meta.env.VITE_FIREBASE_API_KEY;
+    const isOnline = navigator.onLine;
+
+    setNetworkStatus({ isOnline, firebaseConfigured: hasKeys });
+
+    // Listen for offline/online
+    const handleOnline = () => setNetworkStatus(prev => ({ ...prev!, isOnline: true }));
+    const handleOffline = () => setNetworkStatus(prev => ({ ...prev!, isOnline: false }));
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   // Helper to add new item row
   const addItem = () => {
     setItems([...items, { type: ProductType.CAN_20L, quantity: 1 }]);
@@ -378,6 +401,27 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
 
         {!isSuccess ? (
           <div className="space-y-6 animate-fadeIn">
+
+            {/* Network Diagnostic Banner (Only if issues detected) */}
+            {networkStatus && (!networkStatus.isOnline || !networkStatus.firebaseConfigured) && (
+              <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-md shadow-sm mb-4">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <span className="text-2xl">⚠️</span>
+                  </div>
+                  <div className="ml-3">
+                    <h3 className="text-sm font-medium text-red-800">Connection Issue Detected</h3>
+                    <div className="mt-2 text-sm text-red-700">
+                      <ul className="list-disc pl-5 space-y-1">
+                        {!networkStatus.isOnline && <li>You are currently offline. Please check your internet.</li>}
+                        {!networkStatus.firebaseConfigured && <li>System Configuration Error: API Keys missing.</li>}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* 1. Customer Details Section */}
             <Card title={t?.yourDetails || "Your Details"}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

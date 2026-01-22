@@ -1,0 +1,33 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Allow public to create orders and read their own orders (if we had auth)
+    // For now, allowing open read/write for Orders to fix the immediate issue.
+    // Ideally: allow create if request.resource.data.keys().hasAll(['customerId', 'totalAmount']);
+    match /orders/{orderId} {
+      allow read, write: if true;
+    }
+
+    // 2. Allow public to create Customers (Quick Order flow)
+    match /customers/{customerId} {
+      allow read, write: if true;
+    }
+
+    // 3. Allow read-only for Inventory (Public needs to see stock maybe? Or just internal)
+    // Admin needs write.
+    match /inventory/{itemId} {
+      allow read: if true;
+      allow write: if true; // Temporarily open for Admin panel usage without Auth implementation
+    }
+    
+    // 4. Vehicle Inventory
+    match /vehicle_inventory/{driverId} {
+       allow read, write: if true;
+    }
+    
+    // 5. Transactions
+    match /transactions/{id} {
+        allow read, write: if true;
+    }
+  }
+}
