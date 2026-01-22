@@ -8,7 +8,7 @@ import 'leaflet/dist/leaflet.css';
 import { OpenStreetMapProvider, GeoSearchControl } from 'leaflet-geosearch';
 import 'leaflet-geosearch/dist/geosearch.css';
 import L from 'leaflet';
-import { Navigation, Info, ShieldCheck, MapPin } from 'lucide-react';
+import { Navigation, Info, ShieldCheck, MapPin, ShoppingCart } from 'lucide-react';
 
 // Fix for default Leaflet marker icons in React
 const createMapIcon = () => {
@@ -163,6 +163,11 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
   });
 
   const updateQuantity = (type: string, val: string) => {
+    // Prevent negative inputs
+    if (val.includes('-')) return;
+    const num = parseInt(val);
+    if (!isNaN(num) && num < 0) return;
+
     setQuantities(prev => ({ ...prev, [type]: val }));
   };
 
@@ -454,15 +459,22 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
                           <div className="font-bold text-slate-900 mt-1">₹{config.normalPrice}<span className="text-[10px] font-normal text-slate-500"> {t.perCaseSuffix || "/case"}</span></div>
                         </div>
 
-                        {/* Right: Pure Input (No Steppers) */}
+                        {/* Right: Input with Car Icon */}
                         <div className="flex items-center">
-                          <input
-                            type="number"
-                            value={rawQtyStr === "0" ? "" : rawQtyStr}
-                            onChange={e => updateQuantity(tKey, e.target.value)}
-                            placeholder="0"
-                            className={`w-20 h-14 text-center text-2xl font-black rounded-2xl outline-none focus:ring-4 transition-all ${isSelected ? 'bg-white text-[#4CAF50] ring-green-200' : 'bg-slate-100 text-slate-400 focus:bg-white focus:text-slate-900 focus:ring-green-100'}`}
-                          />
+                          <div className={`flex items-center px-3 py-2 rounded-2xl border-2 transition-all ${isSelected ? 'bg-white border-green-200 shadow-inner' : 'bg-slate-100 border-transparent'}`}>
+                            <ShoppingCart size={20} className={`mr-2 ${isSelected ? 'text-[#4CAF50]' : 'text-slate-400'}`} />
+                            <input
+                              type="number"
+                              min="0"
+                              onKeyDown={(e) => {
+                                if (e.key === '-' || e.key === 'e') e.preventDefault();
+                              }}
+                              value={rawQtyStr === "0" ? "" : rawQtyStr}
+                              onChange={e => updateQuantity(tKey, e.target.value)}
+                              placeholder="0"
+                              className={`w-12 h-10 text-center text-2xl font-black outline-none bg-transparent ${isSelected ? 'text-[#4CAF50]' : 'text-slate-400 focus:text-slate-900'}`}
+                            />
+                          </div>
                         </div>
                       </div>
 
