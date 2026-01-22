@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button, Input } from './SharedComponents';
 import { ProductType, InventoryItem, CanState } from '../types';
 import { PRODUCT_CONFIG } from '../constants';
-import { updateVehicleInventory, getVehicleInventory } from '../services/mockService';
+import { updateVehicleInventory, getVehicleInventory } from '../services/firestoreService';
 import { Save, Plus, Minus, X } from 'lucide-react';
 
 interface VehicleStockModalProps {

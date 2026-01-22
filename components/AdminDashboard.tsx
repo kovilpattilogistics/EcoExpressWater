@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Package, Users, BarChart3, TrendingUp, AlertTriangle, ShoppingCart, ClipboardList } from 'lucide-react';
 import { Card, StatusBadge } from './SharedComponents';
-import { subscribeInventory, subscribeOrders, subscribeCustomers } from '../services/mockService';
+import { subscribeInventory, subscribeOrders, subscribeCustomers } from '../services/firestoreService';
 import { InventoryItem, Order, Customer, ProductType, CanState } from '../types';
 import { LOW_STOCK_THRESHOLD_CANS, LOW_STOCK_THRESHOLD_BOTTLES } from '../constants';
 

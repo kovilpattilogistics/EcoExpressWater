@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Input, Button, Select } from './SharedComponents';
 import { ProductType, OrderStatus, Customer } from '../types';
-import { calculateCases, saveOrder, subscribeCustomers } from '../services/mockService';
+import { calculateCases, saveOrder, subscribeCustomers } from '../services/firestoreService';
 import { PRODUCT_CONFIG } from '../constants';
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';

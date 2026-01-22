@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, StatusBadge } from './SharedComponents';
-import { subscribeOrders, saveOrder, getVehicleInventory, updateVehicleInventory } from '../services/mockService';
+import { subscribeOrders, saveOrder, getVehicleInventory, updateVehicleInventory } from '../services/firestoreService';
 import { Order, OrderStatus, ProductType, CanState, InventoryItem } from '../types';
 import { Map, Truck, PackageCheck, CheckCircle, Navigation, Wallet, Package, Clock, ShieldAlert, Edit2, Save, X, Plus } from 'lucide-react';
 import { DRIVER_CREDENTIALS, PRODUCT_CONFIG } from '../constants';

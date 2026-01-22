@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Input, Button, StatusBadge, Select } from './SharedComponents';
-import { subscribeCustomers, saveCustomer, subscribeOrders, deleteCustomer } from '../services/mockService';
+import { subscribeCustomers, saveCustomer, subscribeOrders, deleteCustomer } from '../services/firestoreService';
 import { Customer, Order } from '../types';
 import { Search, MapPin, Phone, User, ShoppingBag, ToggleLeft, ToggleRight, Plus, History, Key, Edit2, X, Trash2 } from 'lucide-react';
 import { LocationPickerMap } from './LocationPickerMap';

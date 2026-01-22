@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Input, Button, Select } from './SharedComponents';
 import { ProductType, Order, OrderStatus } from '../types';
-import { calculateCases, saveOrder, getCustomers, saveCustomer, findCustomerByPhone, calculateSmartRounding } from '../services/mockService';
+import { calculateCases, saveOrder, getCustomers, saveCustomer, findCustomerByPhone, calculateSmartRounding } from '../services/firestoreService';
 import { PRODUCT_CONFIG } from '../constants';
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -51,6 +51,7 @@ const LocationPickerMap: React.FC<{
       style={{ height: '100%', width: '100%' }}
       className="z-0"
     >
+      {/* Map Content */}
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -126,8 +127,19 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
     { type: ProductType.CAN_20L, quantity: 1 }
   ]);
 
-  const [date, setDate] = useState('');
-  const [time, setTime] = useState('');
+  // Initial Date/Time Defaults (Next Hour)
+  const [date, setDate] = useState(() => {
+    const d = new Date();
+    return d.toISOString().split('T')[0];
+  });
+
+  const [time, setTime] = useState(() => {
+    const d = new Date();
+    d.setHours(d.getHours() + 1);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+  });
 
   // Helper to add new item row
   const addItem = () => {
@@ -179,13 +191,17 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handlePlaceOrder = async () => {
+    console.log("handlePlaceOrder START");
+
     // 0. Validation: Mandatory Fields
     if (!date || !time) {
       alert("Please select a Delivery Date and Time.");
+      console.log("Validation Failed: Missing date or time");
       return;
     }
 
     setIsSubmitting(true);
+    console.log("Set isSubmitting to true");
 
     try {
       // 0.1 Validation: Delivery Time > 30 mins
@@ -200,6 +216,7 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
 
       // Logic: If selected time is less than 1 hour from NOW (including past), set to Now + 30 mins
       if (timeDiff < oneHourMs) {
+        console.log("Time validation: selected time too soon, adjusting...");
         const newDeliveryTime = new Date(now.getTime() + thirtyMinsMs);
         // Format to YYYY-MM-DD
         const yyyy = newDeliveryTime.getFullYear();
@@ -214,12 +231,14 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
 
         // Alert user if we changed it? Or just Update State?
         // Prompt says "System should automatically set". Displaying a toast/alert is good UX.
-        alert(`Delivery time updated to ${finalTime} (minimum 30 mins preparation time).`);
+        // alert(`Delivery time updated to ${finalTime} (minimum 30 mins preparation time).`); // Disabled to avoid blocking
 
         // Update State so UI reflects it (optional, but good)
         setDate(finalDate);
         setTime(finalTime);
       }
+
+      console.log(`Final Date: ${finalDate}, Final Time: ${finalTime}`);
 
       // 1. Check for Existing Customer or Create New
       let customerId = `pub_${Date.now()}`;
@@ -265,6 +284,7 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
             10000,
             "Taking too long to save customer profile."
           );
+          console.log("New customer created");
         }
       } catch (err) {
         // If customer check fails, we might want to proceed or stop.
@@ -306,6 +326,7 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
       });
 
       const grandTotal = orderItems.reduce((sum, item) => sum + item.totalPrice, 0);
+      console.log(`Calculated Total: ${grandTotal}`);
 
       // 3. Create Order
       const newOrder: Order = {
@@ -333,13 +354,15 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
       await Promise.race([savePromise, timeoutPromise]);
 
       console.log("Order saved successfully.");
-
       setIsSuccess(true);
+      console.log("Set isSuccess to true");
+
     } catch (error) {
       console.error("Order Placement Failed:", error);
-      alert(`Failed to place order: ${(error as Error).message}. \n\nTip: If you are using an AdBlocker, please disable it for this site.`);
+      alert(`Failed to place order: ${(error as Error).message}.`);
     } finally {
       setIsSubmitting(false);
+      console.log("Set isSubmitting to false");
     }
   };
 
@@ -526,12 +549,11 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
                 {/* Leaflet Map */}
                 <LocationPickerMap
                   onLocationSelect={(lat, lng) => {
-                    // In a real app, use Reverse Geocoding API here to get address string
-                    // For now, we store precise coordinates as requested
                     setCustomerInfo(prev => ({
                       ...prev,
                       lat,
                       lng,
+                      // IMMEDIATELY update the location string so validation passes
                       location: `Selected: ${lat.toFixed(6)}, ${lng.toFixed(6)}`
                     }));
                   }}

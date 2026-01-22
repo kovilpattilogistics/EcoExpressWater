@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Card } from './SharedComponents';
-import { subscribeTransactions, subscribeOrders } from '../services/mockService';
+import { subscribeTransactions, subscribeOrders } from '../services/firestoreService';
 import { Transaction, Order } from '../types';
 
 export const AdminRevenue: React.FC = () => {

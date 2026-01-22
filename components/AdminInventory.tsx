@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, History, Edit2, X } from 'lucide-react';
 import { Card, Button, Input, Select } from './SharedComponents';
-import { subscribeInventory, updateInventory, addTransaction, subscribeTransactions, setInventoryQuantity } from '../services/mockService';
+import { subscribeInventory, updateInventory, addTransaction, subscribeTransactions, setInventoryQuantity } from '../services/firestoreService';
 import { InventoryItem, ProductType, CanState, Transaction } from '../types';
 import { PRODUCT_CONFIG } from '../constants';
 

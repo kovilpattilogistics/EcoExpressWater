@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, Button, Input, Select, StatusBadge } from './SharedComponents';
 import { ProductType, Order, OrderItem, OrderStatus, Customer } from '../types';
 import { PRODUCT_CONFIG } from '../constants';
-import { calculateCases, saveOrder, subscribeOrders, calculateSmartRounding } from '../services/mockService';
+import { calculateCases, saveOrder, subscribeOrders, calculateSmartRounding } from '../services/firestoreService';
 import { MapPin, Clock } from 'lucide-react';
 
 interface CustomerDashboardProps {
