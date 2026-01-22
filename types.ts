@@ -79,6 +79,19 @@ export interface Order {
   completedAt?: string;
   emptyCansReturned?: number;
   driverId?: string;
+  paymentMode?: PaymentMode;
+  paymentStatus?: PaymentStatus;
+  amountReceived?: number;
+}
+
+export enum PaymentMode {
+  CASH = 'CASH',
+  UPI = 'UPI'
+}
+
+export enum PaymentStatus {
+  PENDING = 'PENDING',
+  PAID = 'PAID'
 }
 
 export interface Transaction {

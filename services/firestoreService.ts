@@ -173,6 +173,23 @@ export const findCustomerByPhone = async (phone: string): Promise<Customer | und
     }
 };
 
+export const updateCustomerPendingAmount = async (customerId: string, amountToAdd: number) => {
+    const customerRef = doc(db, COLLECTIONS.CUSTOMERS, customerId);
+    try {
+        await runTransaction(db, async (transaction) => {
+            const sfDoc = await transaction.get(customerRef);
+            if (!sfDoc.exists()) throw "Customer does not exist!";
+
+            const currentPending = sfDoc.data().pendingAmount || 0;
+            const newPending = currentPending + amountToAdd;
+            transaction.update(customerRef, { pendingAmount: newPending });
+        });
+        console.log(`✅ [Customer] Updated Pending Amount by ${amountToAdd}`);
+    } catch (e) {
+        console.error("Transaction failed: ", e);
+    }
+};
+
 // --- Inventory ---
 
 export const subscribeInventory = (callback: (items: InventoryItem[]) => void) => {

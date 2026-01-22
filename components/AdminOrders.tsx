@@ -1,19 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Input, Button, StatusBadge } from './SharedComponents';
-import { subscribeOrders, deleteOrder } from '../services/firestoreService';
-import { Order, OrderStatus } from '../types';
+import { subscribeOrders, deleteOrder, subscribeCustomers } from '../services/firestoreService';
+import { Order, OrderStatus, Customer } from '../types';
 import { Search, Trash2, Filter, AlertTriangle } from 'lucide-react';
 
 export const AdminOrders: React.FC = () => {
     const [orders, setOrders] = useState<Order[]>([]);
+    const [customers, setCustomers] = useState<Record<string, Customer>>({});
     const [searchTerm, setSearchTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState<string>('ALL');
 
     useEffect(() => {
-        const unsubscribe = subscribeOrders((updatedOrders) => {
+        const unsubOrders = subscribeOrders((updatedOrders) => {
             setOrders(updatedOrders);
         });
-        return () => unsubscribe();
+        const unsubCustomers = subscribeCustomers((custs) => {
+            const map: Record<string, Customer> = {};
+            custs.forEach(c => map[c.id] = c);
+            setCustomers(map);
+        });
+        return () => {
+            unsubOrders();
+            unsubCustomers();
+        };
     }, []);
 
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -85,41 +94,51 @@ export const AdminOrders: React.FC = () => {
                         <Filter size={48} className="mx-auto mb-4 opacity-50" />
                         No orders found matching your criteria.
                     </div>
-                ) : filteredOrders.map(order => (
-                    <div
-                        key={order.id}
-                        onClick={() => setSelectedOrder(order)}
-                        className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow flex flex-col md:flex-row justify-between items-start md:items-center gap-4 cursor-pointer active:scale-[0.99] duration-200"
-                    >
-                        <div className="flex-grow">
-                            <div className="flex justify-between md:justify-start items-center gap-3 mb-1">
-                                <span className="font-mono text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">#{order.id.slice(-6)}</span>
-                                <span className="text-xs text-slate-500">{new Date(order.createdAt).toLocaleDateString()}</span>
+                ) : filteredOrders.map(order => {
+                    const cust = customers[order.customerId];
+                    const pendingAmt = cust?.pendingAmount || 0;
+
+                    return (
+                        <div
+                            key={order.id}
+                            onClick={() => setSelectedOrder(order)}
+                            className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow flex flex-col md:flex-row justify-between items-start md:items-center gap-4 cursor-pointer active:scale-[0.99] duration-200"
+                        >
+                            <div className="flex-grow">
+                                <div className="flex justify-between md:justify-start items-center gap-3 mb-1">
+                                    <span className="font-mono text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">#{order.id.slice(-6)}</span>
+                                    <span className="text-xs text-slate-500">{new Date(order.createdAt).toLocaleDateString()}</span>
+                                    {pendingAmt > 0 && (
+                                        <span className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                            ⚠️ PENDING: ₹{pendingAmt}
+                                        </span>
+                                    )}
+                                </div>
+                                <h3 className="font-bold text-slate-800 text-lg">{order.customerName}</h3>
+                                <p className="text-sm text-slate-600 mb-1">
+                                    {order.items.map(i => `${i.productType} (${i.quantity})`).join(', ')}
+                                </p>
+                                <div className="flex items-center gap-2 text-xs text-slate-500">
+                                    <span className="font-semibold text-slate-700">₹{order.totalAmount}</span>
+                                    <span>•</span>
+                                    <span>{order.deliveryLocation}</span>
+                                </div>
                             </div>
-                            <h3 className="font-bold text-slate-800 text-lg">{order.customerName}</h3>
-                            <p className="text-sm text-slate-600 mb-1">
-                                {order.items.map(i => `${i.productType} (${i.quantity})`).join(', ')}
-                            </p>
-                            <div className="flex items-center gap-2 text-xs text-slate-500">
-                                <span className="font-semibold text-slate-700">₹{order.totalAmount}</span>
-                                <span>•</span>
-                                <span>{order.deliveryLocation}</span>
+
+                            <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end">
+                                <StatusBadge status={order.status} />
+
+                                <button
+                                    onClick={(e) => handleDeleteClick(e, order.id)}
+                                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors z-10"
+                                    title="Delete Order"
+                                >
+                                    <Trash2 size={18} />
+                                </button>
                             </div>
                         </div>
-
-                        <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end">
-                            <StatusBadge status={order.status} />
-
-                            <button
-                                onClick={(e) => handleDeleteClick(e, order.id)}
-                                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors z-10"
-                                title="Delete Order"
-                            >
-                                <Trash2 size={18} />
-                            </button>
-                        </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
 
             {/* Order Details Modal */}

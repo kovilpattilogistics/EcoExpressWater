@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, StatusBadge } from './SharedComponents';
-import { subscribeOrders, saveOrder, getVehicleInventory, updateVehicleInventory } from '../services/firestoreService';
-import { Order, OrderStatus, ProductType, CanState, InventoryItem } from '../types';
-import { Map, Truck, PackageCheck, CheckCircle, Navigation, Wallet, Package, Clock, ShieldAlert, Edit2, Save, X, Plus, Calendar } from 'lucide-react';
+import { subscribeOrders, saveOrder, getVehicleInventory, updateVehicleInventory, updateCustomerPendingAmount } from '../services/firestoreService';
+import { Order, OrderStatus, ProductType, CanState, InventoryItem, PaymentMode, PaymentStatus } from '../types';
+import { Map, Truck, PackageCheck, CheckCircle, Navigation, Wallet, Package, Clock, ShieldAlert, Edit2, Save, X, Plus, Calendar, Coins, QrCode, ArrowLeft } from 'lucide-react';
 import { DRIVER_CREDENTIALS, PRODUCT_CONFIG } from '../constants';
 import { VehicleStockModal } from './VehicleStockModal';
 
@@ -23,6 +23,12 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
 
   const [emptyCansInput, setEmptyCansInput] = useState(0);
   const [showAddModal, setShowAddModal] = useState(false);
+
+  // Payment Workflow State
+  const [showPaymentView, setShowPaymentView] = useState(false);
+  const [showEmptyCanConfirmation, setShowEmptyCanConfirmation] = useState(false);
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>(PaymentMode.CASH);
+  const [amountCollected, setAmountCollected] = useState(0);
 
   // Mock Driver ID
   const driverId = DRIVER_CREDENTIALS.username;
@@ -54,6 +60,13 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
     if (selectedOrder) {
       setEditedItems(selectedOrder.items);
       setIsEditingOrder(false);
+      // Reset payment flow on new order selection
+      setShowPaymentView(false);
+      setShowEmptyCanConfirmation(false);
+      // Default empty cans input to 0 or whatever was previously saved if re-editing (though usually we start fresh)
+      setEmptyCansInput(selectedOrder.emptyCansReturned || 0);
+      setPaymentMode(PaymentMode.CASH);
+      setAmountCollected(selectedOrder.totalAmount);
     }
   }, [selectedOrder]);
 
@@ -111,8 +124,6 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
       .filter(o => o.status === OrderStatus.PENDING)
       .map(o => o.id);
 
-    // Toggle: if all visible pending are selected, deselect them. Else select all of them.
-    // Note: We check if `selectedOrderIds` contains ALL of `pendingOnDate`
     const allSelected = pendingOnDate.length > 0 && pendingOnDate.every(id => selectedOrderIds.has(id));
 
     const newSet = new Set(selectedOrderIds);
@@ -159,22 +170,59 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
       loadData();
     }
 
-    // Logic on Delivered (Add Empty Cans to Vehicle Stock)
-    if (newStatus === OrderStatus.DELIVERED && emptyCansReturned && emptyCansReturned > 0) {
+    await saveOrder(updatedOrder);
+    setOrders(prev => prev.map(o => o.id === order.id ? updatedOrder : o));
+    setSelectedOrder(updatedOrder);
+  };
+
+  // --- Payment & Delivery Workflow ---
+
+  const initiateDeliveryCompletion = () => {
+    if (emptyCansInput === 0) {
+      setShowEmptyCanConfirmation(true);
+    } else {
+      setShowPaymentView(true);
+    }
+  };
+
+  const handlePaymentCompletion = async () => {
+    if (!selectedOrder) return;
+
+    // 1. Update Inventory (Add Empty Cans)
+    if (emptyCansInput > 0) {
       const emptyCanItem = {
         type: ProductType.CAN_20L,
-        quantity: emptyCansReturned,
+        quantity: emptyCansInput,
         canState: CanState.EMPTY
       };
       await updateVehicleInventory(driverId, emptyCanItem, 'INCREMENT');
-      loadData();
     }
 
-    await saveOrder(updatedOrder);
+    // 2. Handle Pending Payment Logic
+    const pendingDifference = selectedOrder.totalAmount - amountCollected;
+    if (pendingDifference > 0) {
+      // Add to Customer's Pending Balance
+      await updateCustomerPendingAmount(selectedOrder.customerId, pendingDifference);
+    }
 
-    // Update local state (Optimistic, though subscription will eventually override)
-    setOrders(prev => prev.map(o => o.id === order.id ? updatedOrder : o));
+    // 3. Update Order
+    const updatedOrder: Order = {
+      ...selectedOrder,
+      status: OrderStatus.DELIVERED,
+      paymentStatus: PaymentStatus.PAID,
+      paymentMode: paymentMode,
+      amountReceived: amountCollected,
+      emptyCansReturned: emptyCansInput,
+      completedAt: new Date().toISOString()
+    };
+
+    await saveOrder(updatedOrder);
+    setOrders(prev => prev.map(o => o.id === updatedOrder.id ? updatedOrder : o));
     setSelectedOrder(updatedOrder);
+
+    // Reset Flow
+    setShowPaymentView(false);
+    loadData();
   };
 
   // --- Order Modification Logic ---
@@ -274,20 +322,26 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
     selectedOrdersList.forEach(order => {
       order.items.forEach(item => {
         const key = item.productType;
-        const qty = item.quantity; // Use Raw Quantity
+        const qty = item.quantity;
         requirements[key] = (requirements[key] || 0) + qty;
       });
     });
 
     return Object.keys(requirements).map(type => {
       const isCan = type === ProductType.CAN_20L;
-      const needed = requirements[type];
+      // Case Calculation
+      let needed = requirements[type];
+      if (!isCan) {
+        const itemsPerCase = PRODUCT_CONFIG[type as ProductType]?.itemsPerCase || 1;
+        needed = Math.ceil(needed / itemsPerCase);
+      }
+
       const stockItem = isCan
         ? vehicleStock.find(s => s.type === type && s.canState === CanState.FILLED)
         : vehicleStock.find(s => s.type === type);
 
       const have = stockItem?.quantity || 0;
-      return { type, needed, have, sufficient: have >= needed };
+      return { type, needed, have, sufficient: have >= needed, isCase: !isCan };
     });
   };
 
@@ -296,16 +350,29 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
 
   const confirmTrip = async () => {
     const selectedOrdersList = orders.filter(o => selectedOrderIds.has(o.id));
-    const allUpdates: InventoryItem[] = [];
-
-    // Collect all deductions
+    // Re-calculate REQUIREMENTS per type purely to get the Case Count for deduction
+    const requirements: Record<string, number> = {};
     selectedOrdersList.forEach(order => {
       order.items.forEach(item => {
-        allUpdates.push({
-          type: item.productType,
-          quantity: -item.quantity, // Negative to subtract
-          canState: item.productType === ProductType.CAN_20L ? CanState.FILLED : undefined
-        });
+        requirements[item.productType] = (requirements[item.productType] || 0) + item.quantity;
+      });
+    });
+
+    const allUpdates: InventoryItem[] = [];
+
+    Object.keys(requirements).forEach(type => {
+      const isCan = type === ProductType.CAN_20L;
+      let qtyToDeduct = requirements[type];
+
+      if (!isCan) {
+        const itemsPerCase = PRODUCT_CONFIG[type as ProductType]?.itemsPerCase || 1;
+        qtyToDeduct = Math.ceil(qtyToDeduct / itemsPerCase);
+      }
+
+      allUpdates.push({
+        type: type as ProductType,
+        quantity: -qtyToDeduct,
+        canState: isCan ? CanState.FILLED : undefined
       });
     });
 
@@ -324,6 +391,88 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
     setSelectedOrderIds(new Set());
     alert("Trip Started! Inventory Reserved.");
   };
+
+  // Render Payment View if active
+  if (selectedOrder && showPaymentView) {
+    const pendingBalance = selectedOrder.totalAmount - amountCollected;
+
+    return (
+      <div className="pb-24 p-4 md:p-6 bg-slate-50 min-h-screen animate-fadeIn">
+        <button
+          onClick={() => setShowPaymentView(false)}
+          className="flex items-center gap-1 text-slate-500 font-bold hover:text-slate-800 mb-6"
+        >
+          <ArrowLeft size={16} /> Back to Order
+        </button>
+
+        <Card title="Payment Collection" className="shadow-lg border-t-4 border-t-green-500">
+          <div className="text-center mb-6">
+            <p className="text-slate-500 text-sm font-bold uppercase">Total to Collect</p>
+            <h2 className="text-4xl font-bold text-slate-800 my-2">₹{selectedOrder.totalAmount}</h2>
+          </div>
+
+          <div className="bg-slate-50 p-1 rounded-lg flex mb-6 border border-slate-200">
+            <button
+              onClick={() => setPaymentMode(PaymentMode.CASH)}
+              className={`flex-1 py-3 rounded-md text-sm font-bold flex items-center justify-center gap-2 transition-all ${paymentMode === PaymentMode.CASH ? 'bg-white shadow text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
+            >
+              <Wallet size={16} /> Cash
+            </button>
+            <button
+              onClick={() => setPaymentMode(PaymentMode.UPI)}
+              className={`flex-1 py-3 rounded-md text-sm font-bold flex items-center justify-center gap-2 transition-all ${paymentMode === PaymentMode.UPI ? 'bg-white shadow text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
+            >
+              <QrCode size={16} /> UPI / QR
+            </button>
+          </div>
+
+          <div className="space-y-4 mb-6">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">
+                {paymentMode === PaymentMode.CASH ? 'Amount Received' : 'Confirm Amount Received'}
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">₹</span>
+                <input
+                  type="number"
+                  value={amountCollected}
+                  onChange={(e) => setAmountCollected(Number(e.target.value))}
+                  className="w-full pl-8 pr-4 py-3 rounded-lg border border-slate-200 font-bold text-lg focus:ring-2 focus:ring-green-500 outline-none"
+                />
+              </div>
+            </div>
+
+            {pendingBalance > 0 && (
+              <div className="bg-orange-50 p-3 rounded-lg border border-orange-200">
+                <p className="text-xs text-orange-800 font-bold flex justify-between">
+                  <span>⚠️ Pending Payment Added:</span>
+                  <span>₹{pendingBalance}</span>
+                </p>
+                <p className="text-[10px] text-orange-600 mt-1">This amount will be added to the customer's pending balance.</p>
+              </div>
+            )}
+          </div>
+
+          {paymentMode === PaymentMode.UPI && (
+            <div className="text-center mb-6">
+              <div className="bg-white p-4 rounded-xl border border-slate-200 inline-block shadow-sm">
+                <img src="/qr-code.png" alt="UPI QR Code" className="w-48 h-48 object-contain mx-auto" />
+              </div>
+              <p className="text-sm text-slate-500 mt-2">Scan to pay <strong>₹{selectedOrder.totalAmount}</strong></p>
+            </div>
+          )}
+
+          <Button
+            className="w-full py-4 text-lg bg-green-600 hover:bg-green-700 shadow-xl shadow-green-100"
+            onClick={handlePaymentCompletion}
+            icon={CheckCircle}
+          >
+            Close Order
+          </Button>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="pb-24 p-4 md:p-6 bg-slate-50 min-h-screen">
@@ -501,6 +650,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
                 <div className="flex-1">
                   <p className="text-xs text-blue-600 font-bold uppercase mb-1">Delivery Location</p>
                   <p className="text-sm font-semibold text-slate-800 leading-tight">{selectedOrder.deliveryLocation}</p>
+                  <p className="text-sm text-slate-500">{selectedOrder.customerType}</p>
                   <p className="text-[10px] text-blue-500 mt-1">Tap to Open Maps</p>
                 </div>
               </div>
@@ -610,8 +760,9 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
                     </div>
                   </div>
 
-                  <Button className="w-full py-4 text-lg shadow-xl shadow-green-200 bg-green-600 hover:bg-green-700" onClick={() => handleStatusChange(selectedOrder, OrderStatus.DELIVERED, emptyCansInput)} icon={PackageCheck}>
-                    Mark Delivered & Paid
+                  {/* ACTION TRIGGER */}
+                  <Button className="w-full py-4 text-lg shadow-xl shadow-green-200 bg-green-600 hover:bg-green-700" onClick={initiateDeliveryCompletion} icon={PackageCheck}>
+                    Move to Payment
                   </Button>
                 </div>
               )}
@@ -622,7 +773,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
                     <CheckCircle size={24} />
                   </div>
                   <h3 className="font-bold text-slate-800">Order Completed</h3>
-                  <p className="text-xs text-slate-500">Cash collected and stock updated.</p>
+                  <p className="text-xs text-slate-500">Paid: {selectedOrder.paymentMode} | Collected: {selectedOrder.emptyCansReturned} Cans</p>
                 </div>
               )}
             </div>
@@ -652,11 +803,11 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
                   <div key={r.type} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100">
                     <div>
                       <p className="font-bold text-sm text-slate-700">{r.type}</p>
-                      <p className="text-xs text-slate-500">Required: <strong>{r.needed}</strong></p>
+                      <p className="text-xs text-slate-500">Required: <strong>{r.needed} {r.isCase ? 'Cases' : ''}</strong></p>
                     </div>
                     <div className="text-right">
                       <p className={`font-bold ${r.sufficient ? 'text-green-600' : 'text-red-600'}`}>
-                        Have: {r.have}
+                        Have: {r.have} {r.isCase ? 'Cases' : ''}
                       </p>
                       {r.sufficient ?
                         <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Sufficient</span> :
@@ -678,6 +829,24 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
                 <Button onClick={confirmTrip} disabled={!allSufficient} className={!allSufficient ? 'opacity-50 cursor-not-allowed bg-slate-400' : 'bg-green-600 hover:bg-green-700 shadow-lg shadow-green-200'}>
                   Confirm & Start
                 </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Empty Can Confirmation Modal */}
+      {showEmptyCanConfirmation && (
+        <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-fadeIn">
+            <div className="p-6 text-center">
+              <ShieldAlert size={48} className="mx-auto text-orange-400 mb-4" />
+              <h3 className="font-bold text-lg text-slate-800 mb-2">No Empty Cans Collected?</h3>
+              <p className="text-sm text-slate-500 mb-6">Are you sure there are no empty cans to collect for this customer?</p>
+
+              <div className="flex gap-3">
+                <Button variant="secondary" onClick={() => setShowEmptyCanConfirmation(false)} className="flex-1">No, I have cans</Button>
+                <Button onClick={() => { setShowEmptyCanConfirmation(false); setShowPaymentView(true); }} className="flex-1 bg-blue-600">Confirm (0 Cans)</Button>
               </div>
             </div>
           </div>

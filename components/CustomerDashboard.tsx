@@ -114,6 +114,16 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
         <button onClick={onLogout} className="text-sm text-red-500">Logout</button>
       </div>
 
+      {customer.pendingAmount > 0 && (
+        <div className="bg-orange-50 border border-orange-200 p-4 rounded-xl flex justify-between items-center animate-pulse">
+          <div>
+            <p className="text-orange-800 font-bold text-sm">Pending Payment</p>
+            <p className="text-xs text-orange-600">Please pay this amount to the delivery partner.</p>
+          </div>
+          <span className="text-xl font-bold text-orange-700">₹{customer.pendingAmount}</span>
+        </div>
+      )}
+
       <div className="flex gap-2">
         <Button variant={view === 'ORDER' ? 'primary' : 'secondary'} onClick={() => setView('ORDER')} className="flex-1">Place Order</Button>
         <Button variant={view === 'HISTORY' ? 'primary' : 'secondary'} onClick={() => setView('HISTORY')} className="flex-1">History</Button>
