@@ -164,6 +164,8 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
     };
   }, []);
 
+
+
   // Helper to add new item row
   const addItem = () => {
     setItems([...items, { type: ProductType.CAN_20L, quantity: 1 }]);
@@ -280,7 +282,7 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
         console.log("Checking for existing customer...");
         const existingCustomer = await withTimeout(
           findCustomerByPhone(customerInfo.phone),
-          10000,
+          30000,
           "Taking too long to check customer data. Please check connection."
         );
 
@@ -304,9 +306,9 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
               email: customerInfo.phone, // Default username is phone
               password: customerInfo.phone // Default password is phone (as per request)
             }),
-            10000,
+            30000,
             "Taking too long to save customer profile."
-          );
+          ); // INCREASED TO 30s
           console.log("New customer created");
         }
       } catch (err) {

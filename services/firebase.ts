@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, CACHE_SIZE_UNLIMITED } from 'firebase/firestore';
 
 const firebaseConfig = {
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyAKG-JpfyGP_h_efAPbL0duGrUVDhgtheI",
@@ -11,12 +11,11 @@ const firebaseConfig = {
     measurementId: (import.meta.env as any).VITE_FIREBASE_MEASUREMENT_ID || "G-81FL6EXMSE"
 };
 
-console.log("🔥 Firebase Config Loaded:", {
-    projectId: firebaseConfig.projectId,
-    authDomain: firebaseConfig.authDomain,
-    hasApiKey: !!firebaseConfig.apiKey,
-    isFallback: !import.meta.env.VITE_FIREBASE_API_KEY
-});
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+
+// Initialize Firestore with specific settings to avoid hanging
+// experimentalForceLongPolling is often required when WebSockets are blocked or unstable
+export const db = initializeFirestore(app, {
+    experimentalForceLongPolling: true,
+});

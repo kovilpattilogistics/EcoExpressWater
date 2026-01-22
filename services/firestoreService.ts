@@ -160,10 +160,17 @@ export const deleteCustomer = async (customerId: string) => {
 };
 
 export const findCustomerByPhone = async (phone: string): Promise<Customer | undefined> => {
-    const q = query(collection(db, COLLECTIONS.CUSTOMERS), where("phone", "==", phone));
-    const snapshot = await getDocs(q);
-    if (snapshot.empty) return undefined;
-    return snapshot.docs[0].data() as Customer;
+    console.log(`🔥 [firestoreService] findCustomerByPhone checking for: ${phone}`);
+    try {
+        const q = query(collection(db, COLLECTIONS.CUSTOMERS), where("phone", "==", phone));
+        const snapshot = await getDocs(q);
+        console.log(`🔥 [firestoreService] findCustomerByPhone result empty?: ${snapshot.empty}`);
+        if (snapshot.empty) return undefined;
+        return snapshot.docs[0].data() as Customer;
+    } catch (error) {
+        console.error("❌ [firestoreService] findCustomerByPhone Error:", error);
+        throw error;
+    }
 };
 
 // --- Inventory ---
