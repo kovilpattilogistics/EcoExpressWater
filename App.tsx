@@ -10,7 +10,7 @@ import { CustomerDashboard } from './components/CustomerDashboard';
 import { PublicOrder } from './components/PublicOrder';
 import { Input, Button, Card } from './components/SharedComponents';
 import { ADMIN_CREDENTIALS, DRIVER_CREDENTIALS } from './constants';
-import { getCustomers } from './services/mockService';
+import { getCustomers } from './services/firestoreService';
 import { UserRole, Customer } from './types';
 import { Truck, Users, ShieldCheck, MapPin, Phone, LogIn, Globe, Clock, Star, CheckCircle, Zap, Recycle, Smartphone } from 'lucide-react';
 import { TRANSLATIONS, Language } from './constants/translations';
