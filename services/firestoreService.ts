@@ -248,39 +248,60 @@ export const getVehicleInventory = async (driverId: string): Promise<InventoryIt
     return data.items || [];
 };
 
-export const updateVehicleInventory = async (driverId: string, item: InventoryItem, isLoad: boolean) => {
-    // Complex nested update. 
-    // Structure: Collection 'vehicle_inventory', Doc = driverId
-    // Fields: driverId: string, items: InventoryItem[]
-
+export const updateVehicleInventory = async (driverId: string, updates: InventoryItem | InventoryItem[], operation: 'SET' | 'INCREMENT') => {
     const docRef = doc(db, COLLECTIONS.VEHICLE_INVENTORY, driverId);
+    const itemsToUpdate = Array.isArray(updates) ? updates : [updates];
+
+    console.log(`🔥 [Inventory] Batch Update: ${itemsToUpdate.length} items. Operation: ${operation}`);
 
     try {
         await runTransaction(db, async (t) => {
             const vDoc = await t.get(docRef);
-            let items: InventoryItem[] = [];
+            let currentItems: InventoryItem[] = [];
 
             if (vDoc.exists()) {
-                items = vDoc.data().items || [];
+                currentItems = vDoc.data().items || [];
             }
 
-            const existingIndex = items.findIndex(i => i.type === item.type && i.canState === item.canState);
+            // Process each update
+            for (const item of itemsToUpdate) {
+                const existingIndex = currentItems.findIndex(i => i.type === item.type && i.canState === item.canState);
 
-            if (existingIndex > -1) {
-                if (isLoad) {
-                    items[existingIndex].quantity = item.quantity;
+                if (existingIndex > -1) {
+                    if (operation === 'SET') {
+                        currentItems[existingIndex].quantity = item.quantity;
+                    } else {
+                        // INCREMENT (Pass negative quantity to decrement)
+                        const newQty = (currentItems[existingIndex].quantity || 0) + item.quantity;
+                        currentItems[existingIndex].quantity = Math.max(0, newQty);
+                    }
                 } else {
-                    items[existingIndex].quantity = (items[existingIndex].quantity || 0) + item.quantity;
+                    // Item doesn't exist
+                    if (operation === 'SET') {
+                        currentItems.push(item);
+                    } else {
+                        // Incrementing a non-existent item (start at 0)
+                        // Only add if quantity > 0
+                        if (item.quantity > 0) {
+                            currentItems.push(item);
+                        } else {
+                            // Subtracting from non-existent? Ignore.
+                        }
+                    }
                 }
-            } else {
-                items.push(item);
             }
 
-            const safeData = cleanData({ driverId, items });
+            // Cleanup: Remove items with 0 quantity? Optionally.
+            // Let's keep them if it's 'SET' (maybe user explicitly set 0). 
+            // Only filter if we want to save space. For now, keep logic simple.
+
+            const safeData = cleanData({ driverId, items: currentItems });
             t.set(docRef, safeData, { merge: true });
         });
+        console.log("✅ [Inventory] Update Success");
     } catch (e) {
-        console.error("Vehicle update failed", e);
+        console.error("❌ [Inventory] Update Failed", e);
+        throw e;
     }
 };
 

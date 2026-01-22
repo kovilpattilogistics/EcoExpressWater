@@ -63,7 +63,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
   const handleStatusChange = async (order: Order, newStatus: OrderStatus, emptyCansReturned?: number) => {
     const updatedOrder = { ...order, status: newStatus, emptyCansReturned };
 
-    // Inventory Logic on Confirmation
+    // Inventory Logic on Confirmation (Reserve Stock from Truck)
     if (newStatus === OrderStatus.CONFIRMED) {
       // Deduct from Vehicle Stock check
       let sufficient = true;
@@ -83,15 +83,14 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
         return;
       }
 
-      // Deduct
-      for (const item of order.items) {
-        const itemToDeduct = {
-          type: item.productType,
-          quantity: item.quantity,
-          canState: item.productType === ProductType.CAN_20L ? CanState.FILLED : undefined
-        };
-        await updateVehicleInventory(driverId, itemToDeduct, false);
-      }
+      // Deduct (Reserve) from Truck
+      const itemsToDeduct = order.items.map(item => ({
+        type: item.productType,
+        quantity: -item.quantity, // Negative to subtract
+        canState: item.productType === ProductType.CAN_20L ? CanState.FILLED : undefined
+      }));
+
+      await updateVehicleInventory(driverId, itemsToDeduct, 'INCREMENT');
       // Refresh local view
       loadData();
     }
@@ -103,7 +102,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
         quantity: emptyCansReturned,
         canState: CanState.EMPTY
       };
-      await updateVehicleInventory(driverId, emptyCanItem, true);
+      await updateVehicleInventory(driverId, emptyCanItem, 'INCREMENT');
       loadData();
     }
 
@@ -133,7 +132,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
 
     // 1. Calculate Differences for Stock
     let stockError = null;
-    const inventoryUpdates: { item: InventoryItem, isLoad: boolean }[] = [];
+    const inventoryUpdates: InventoryItem[] = [];
 
     const newTotalAmount = editedItems.reduce((sum, item) => sum + item.totalPrice, 0);
 
@@ -142,25 +141,24 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
       const oldItem = selectedOrder.items.find(x => x.productType === newItem.productType);
 
       const oldQty = oldItem ? oldItem.quantity : 0;
-      const diff = oldQty - newItem.quantity;
+      const diff = oldQty - newItem.quantity; // positive = returned (add), negative = taken (sub)
 
       if (diff === 0) continue;
 
       const stockKey = { type: newItem.productType, canState: newItem.productType === ProductType.CAN_20L ? CanState.FILLED : undefined };
 
       if (diff < 0) {
-        // Need MORE items (Take from Truck) -> diff is negative, needed is abs(diff)
+        // Need MORE items (Take from Truck)
         const needed = Math.abs(diff);
         const stock = vehicleStock.find(s => s.type === stockKey.type && s.canState === stockKey.canState);
         if (!stock || stock.quantity < needed) {
           stockError = `Insufficient stock for ${newItem.productType}. Need ${needed} more.`;
           break;
         }
-        inventoryUpdates.push({ item: { type: stockKey.type, quantity: needed, canState: stockKey.canState }, isLoad: false }); // Unload from truck
-      } else {
-        // Returning items (Load into Truck) -> diff is positive
-        inventoryUpdates.push({ item: { type: stockKey.type, quantity: diff, canState: stockKey.canState }, isLoad: true }); // Load to truck
       }
+
+      // Add update (diff works for sign: +2 adds, -2 subtracts)
+      inventoryUpdates.push({ type: stockKey.type, quantity: diff, canState: stockKey.canState });
     }
 
     if (stockError) {
@@ -168,9 +166,9 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
       return;
     }
 
-    // 2. Apply Stock Updates
-    for (const update of inventoryUpdates) {
-      await updateVehicleInventory(driverId, update.item, update.isLoad);
+    // 2. Apply Stock Updates Batch
+    if (inventoryUpdates.length > 0) {
+      await updateVehicleInventory(driverId, inventoryUpdates, 'INCREMENT');
     }
 
     // 3. Update Order
@@ -231,28 +229,35 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
   const validationResults = getValidationData();
   const allSufficient = validationResults.every(r => r.sufficient);
 
-  const confirmTrip = () => {
+  const confirmTrip = async () => {
     const selectedOrdersList = orders.filter(o => selectedOrderIds.has(o.id));
+    const allUpdates: InventoryItem[] = [];
 
+    // Collect all deductions
     selectedOrdersList.forEach(order => {
-      // Reuse handleStatusChange logic or manually update
-      // We need to deduct stock.
       order.items.forEach(item => {
-        const itemToDeduct = {
+        allUpdates.push({
           type: item.productType,
-          quantity: item.quantity,
+          quantity: -item.quantity, // Negative to subtract
           canState: item.productType === ProductType.CAN_20L ? CanState.FILLED : undefined
-        };
-        updateVehicleInventory(driverId, itemToDeduct, false);
+        });
       });
-
-      saveOrder({ ...order, status: OrderStatus.DISPATCHED });
     });
+
+    // Batch Apply
+    if (allUpdates.length > 0) {
+      await updateVehicleInventory(driverId, allUpdates, 'INCREMENT');
+    }
+
+    // Update Orders
+    for (const order of selectedOrdersList) {
+      await saveOrder({ ...order, status: OrderStatus.DISPATCHED });
+    }
 
     loadData();
     setShowValidation(false);
     setSelectedOrderIds(new Set());
-    alert("Trip Started! Inventory Updated.");
+    alert("Trip Started! Inventory Reserved.");
   };
 
   return (
@@ -327,8 +332,8 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
               </div>
             </div>
             <div className="space-y-3">
-              {orders.length === 0 && <p className="text-slate-400 text-center py-8">No orders assigned yet.</p>}
-              {orders.map(order => {
+              {activeOrders.length === 0 && <p className="text-slate-400 text-center py-8">No active orders in queue.</p>}
+              {activeOrders.map(order => {
                 const isPending = order.status === OrderStatus.PENDING;
                 const isDispatched = order.status === OrderStatus.DISPATCHED;
                 const isDelivered = order.status === OrderStatus.DELIVERED;

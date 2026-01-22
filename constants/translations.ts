@@ -66,7 +66,35 @@ export const TRANSLATIONS = {
         featPickup: "Empty Can Pickup",
         featEasy: "Easy Online Ordering",
         urgency: "Order now, water arrives in 30 mins",
-        hours: "Available 7 AM - 9 PM"
+        hours: "Available 7 AM - 9 PM",
+
+        // New Quick Order UI
+        quickOrder: "Quick Order",
+        useGps: "Use GPS",
+        addressPlaceholder: "Enter Full Address (Building, Street, Landmark)",
+        gpsSet: "Location Pinned via GPS ✓",
+        selectProducts: "Select Products",
+        priceList: "Price List",
+        itemsPerCase: "items/case",
+        perCaseSuffix: "/case",
+        roundedUp: "✨ Rounded Up",
+        perfectFit: "✓ Perfect Fit",
+        youGet: "You get",
+        includes: "Includes",
+        extra: "extra",
+        bottles: "bottles",
+        cans: "Cans",
+        total: "Total",
+        totalEstimate: "Total Estimate",
+        priceListTitle: "Price List & Case Sizes",
+        pricePerCase: "Per Case",
+        caseSize: "Case Size",
+        unitsPerCase: "units/case",
+        setLocation: "Set Location",
+        close: "Close",
+        payOnDelivery: "Total amount to be paid on delivery",
+        deliveryDate: "Delivery Date",
+        deliveryTime: "Delivery Time"
     },
     ta: {
         // Landing
@@ -135,7 +163,36 @@ export const TRANSLATIONS = {
         featPickup: "காலி கேன் திரும்பப் பெறப்படும்",
         featEasy: "எளிய ஆன்லைன் ஆர்டர்",
         urgency: "இப்போதே ஆர்டர் செய்யுங்கள்! 30 நிமிடங்களில் தண்ணீர்",
-        hours: "கிடைக்கும் நேரம்: காலை 7 - இரவு 9"
+        hours: "கிடைக்கும் நேரம்: காலை 7 - இரவு 9",
+
+        // New Quick Order UI
+        quickOrder: "விரைவு ஆர்டர்",
+        useGps: "ஜிபிஎஸ் பயன்பாடு",
+        addressPlaceholder: "முழு முகவரி (கட்டிடம், தெரு, லேண்ட்மார்க்)",
+        gpsSet: "ஜிபிஎஸ் இடம் குறிக்கப்பட்டது ✓",
+        selectProducts: "பொருட்களைத் தேர்ந்தெடுக்கவும்",
+        priceList: "விலை பட்டியல்",
+        itemsPerCase: "பொருட்கள்/கேஸ்",
+        perCaseSuffix: "/கேஸ்",
+        roundedUp: "✨ முழுமைப்படுத்தப்பட்டது",
+        perfectFit: "✓ சரியான அளவு",
+        youGet: "நீங்கள் பெறுவது",
+        includes: "உட்பட",
+        extra: "கூடுதல்",
+        bottles: "பாட்டில்கள்",
+        cans: "கேன்கள்",
+        total: "மொத்தம்",
+        totalEstimate: "மொத்த மதிப்பீடு",
+        priceListTitle: "விலை & கேஸ் அளவுகள்",
+        pricePerCase: "கேஸ் விலை",
+        caseSize: "கேஸ் அளவு",
+        unitsPerCase: "அலகுகள்/கேஸ்",
+        setLocation: "இடத்தை அமைக்கவும்",
+        close: "மூடு",
+        confirmLocation: "இடத்தை உறுதிப்படுத்து",
+        payOnDelivery: "மொத்த தொகையை டெலிவரியின் போது செலுத்த வேண்டும்",
+        deliveryDate: "டெலிவரி தேதி",
+        deliveryTime: "டெலிவரி நேரம்"
     }
 };
 

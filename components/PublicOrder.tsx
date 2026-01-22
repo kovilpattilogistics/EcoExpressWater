@@ -1,22 +1,63 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Input, Button, Select } from './SharedComponents';
+import { Button } from './SharedComponents';
 import { ProductType, Order, OrderStatus } from '../types';
-import { calculateCases, saveOrder, getCustomers, saveCustomer, findCustomerByPhone, calculateSmartRounding } from '../services/firestoreService';
+import { calculateCases, saveOrder, findCustomerByPhone, saveCustomer, calculateSmartRounding } from '../services/firestoreService';
 import { PRODUCT_CONFIG } from '../constants';
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
+import { OpenStreetMapProvider, GeoSearchControl } from 'leaflet-geosearch';
+import 'leaflet-geosearch/dist/geosearch.css';
 import L from 'leaflet';
-import { Info } from 'lucide-react';
+import { Navigation, Info, ShieldCheck, MapPin } from 'lucide-react';
 
 // Fix for default Leaflet marker icons in React
-// Using a customer SVG div icon for better performance/look
 const createMapIcon = () => {
   return L.divIcon({
     className: 'custom-map-icon',
-    html: `<div style="background-color: #4CAF50; width: 30px; height: 30px; border-radius: 50%; border: 3px solid white; box-shadow: 0 4px 8px rgba(0,0,0,0.3);"></div>`,
-    iconSize: [30, 30],
-    iconAnchor: [15, 15]
+    html: `<div style="background-color: #4CAF50; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.2);"></div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12]
   });
+};
+
+const SearchControl: React.FC<{ onResult: (lat: number, lng: number) => void }> = ({ onResult }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    // @ts-ignore
+    const provider = new OpenStreetMapProvider();
+    // @ts-ignore
+    const searchControl = new GeoSearchControl({
+      provider: provider,
+      style: 'bar',
+      showMarker: false,
+      retainZoomLevel: false,
+      animateZoom: true,
+      autoClose: true,
+      searchLabel: 'Search for address...',
+      keepResult: true,
+      zoomLevel: 17, // Zoom to < 1km view
+    });
+
+    map.addControl(searchControl);
+
+    const handleShowLocation = (result: any) => {
+      if (result && result.location) {
+        onResult(Number(result.location.y), Number(result.location.x));
+      }
+    };
+
+    // @ts-ignore
+    map.on('geosearch/showlocation', handleShowLocation);
+
+    return () => {
+      map.removeControl(searchControl);
+      // @ts-ignore
+      map.off('geosearch/showlocation', handleShowLocation);
+    };
+  }, [map, onResult]);
+
+  return null;
 };
 
 const LocationPickerMap: React.FC<{
@@ -39,7 +80,7 @@ const LocationPickerMap: React.FC<{
   const RecenterAutomatically = ({ lat, lng }: { lat: number, lng: number }) => {
     const map = useMap();
     useEffect(() => {
-      map.flyTo([lat, lng], map.getZoom());
+      map.flyTo([lat, lng], 17);
     }, [lat, lng]);
     return null;
   }
@@ -51,11 +92,15 @@ const LocationPickerMap: React.FC<{
       style={{ height: '100%', width: '100%' }}
       className="z-0"
     >
-      {/* Map Content */}
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
+      <SearchControl onResult={(lat, lng) => {
+        setPosition(new L.LatLng(lat, lng));
+        // Recentering is handled by RecenterAutomatically via props
+        onLocationSelect(lat, lng);
+      }} />
       {position && <Marker position={position} icon={createMapIcon()} />}
       <MapEvents />
       <RecenterAutomatically lat={initialLat} lng={initialLng} />
@@ -63,71 +108,67 @@ const LocationPickerMap: React.FC<{
   );
 };
 
-const PriceListModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
+const PriceListModal: React.FC<{ onClose: () => void, t: any }> = ({ onClose, t }) => (
   <div className="fixed inset-0 bg-black/50 z-[110] flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
-    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
-      <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
-        <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-          <Info size={20} className="text-[#4CAF50]" />
-          Product Price List
-        </h3>
+    <div className="bg-white/95 backdrop-blur-md rounded-xl shadow-lg w-full max-w-sm overflow-hidden flex flex-col border border-white/50">
+      <div className="p-4 border-b border-green-100 flex justify-between items-center bg-green-50/50">
+        <h3 className="font-bold text-lg text-green-900">{t.priceListTitle || "Price List & Case Sizes"}</h3>
         <button onClick={onClose} className="text-slate-400 hover:text-red-500 text-2xl">×</button>
       </div>
-
       <div className="p-0 overflow-y-auto max-h-[60vh]">
         <table className="w-full text-sm text-left">
-          <thead className="bg-slate-100 text-slate-600 font-bold uppercase text-xs">
+          <thead className="bg-green-50/30 text-green-700 font-medium">
             <tr>
-              <th className="p-3 border-b">Product</th>
-              <th className="p-3 border-b text-center">Packaging</th>
-              <th className="p-3 border-b text-right">Price</th>
+              <th className="p-3">{t.product || "Product"}</th>
+              <th className="p-3 text-right">{t.pricePerCase || "Per Case"}</th>
+              <th className="p-3 text-right">{t.caseSize || "Case Size"}</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-green-50">
             {Object.values(PRODUCT_CONFIG).map((product) => (
-              <tr key={product.type} className="hover:bg-slate-50">
-                <td className="p-3 font-medium text-slate-800">{product.type}</td>
-                <td className="p-3 text-center text-slate-500">
-                  {product.type.includes('Bottle') ? `${product.itemsPerCase} Bottles / Case` : 'Single Can'}
-                </td>
-                <td className="p-3 text-right font-bold text-[#4CAF50]">
-                  ₹{product.normalPrice}
-                  <span className="text-xs text-slate-400 font-normal ml-1">
-                    /{product.type.includes('Bottle') ? 'Case' : 'Unit'}
-                  </span>
-                </td>
+              <tr key={product.type} className="">
+                <td className="p-3 font-medium text-slate-800">{product.type.replace(' Bottle', '').replace(' Can', '')}</td>
+                <td className="p-3 text-right font-bold text-green-700">₹{product.normalPrice}</td>
+                <td className="p-3 text-right text-slate-500">{product.itemsPerCase} {t.unitsPerCase || "units/case"}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-
-      <div className="p-4 border-t border-slate-200 bg-slate-50 text-center">
-        <Button onClick={onClose} className="w-full">Close</Button>
-      </div>
     </div>
   </div>
 );
 
-// ... imports
-
 export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
   useEffect(() => {
-    console.log("🚀 APP VERSION: v3 (Timeouts & Debugging Active) 🚀");
+    console.log("🚀 APP VERSION: v12 (Address Separation + Pay on Delivery Msg) 🚀");
   }, []);
 
   const [isSuccess, setIsSuccess] = useState(false);
-  const [customerInfo, setCustomerInfo] = useState({ name: '', phone: '', shop: '', location: '', lat: 9.1726, lng: 77.8808 });
+  const [customerInfo, setCustomerInfo] = useState({ name: '', phone: '', shop: '', location: '' });
+  // Store GPS coordinates independently
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number, lng: number } | null>(null);
+
   const [showMap, setShowMap] = useState(false);
   const [showPriceList, setShowPriceList] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
 
-  // Multi-item state
-  const [items, setItems] = useState<{ type: ProductType, quantity: number }[]>([
-    { type: ProductType.CAN_20L, quantity: 1 }
-  ]);
+  // Quantities state (Stores RAW user input)
+  const [quantities, setQuantities] = useState<Record<string, string>>({
+    [ProductType.CAN_20L]: "",
+    [ProductType.BOTTLE_1L]: "",
+    [ProductType.BOTTLE_300ML]: "",
+    [ProductType.BOTTLE_500ML]: "",
+    [ProductType.BOTTLE_2L]: "",
+  });
 
-  // Initial Date/Time Defaults (Next Hour)
+  const updateQuantity = (type: string, val: string) => {
+    setQuantities(prev => ({ ...prev, [type]: val }));
+  };
+
+  const hasItems = Object.values(quantities).some(v => parseInt(v || "0") > 0);
+
+  // Initial Date/Time Defaults
   const [date, setDate] = useState(() => {
     const d = new Date();
     return d.toISOString().split('T')[0];
@@ -141,488 +182,396 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
     return `${hh}:${mm}`;
   });
 
-  // Network & Config Health Check
   const [networkStatus, setNetworkStatus] = useState<{ isOnline: boolean, firebaseConfigured: boolean } | null>(null);
 
   useEffect(() => {
-    // Simple check on mount
     const hasKeys = !!import.meta.env.VITE_FIREBASE_API_KEY;
     const isOnline = navigator.onLine;
-
     setNetworkStatus({ isOnline, firebaseConfigured: hasKeys });
-
-    // Listen for offline/online
     const handleOnline = () => setNetworkStatus(prev => ({ ...prev!, isOnline: true }));
     const handleOffline = () => setNetworkStatus(prev => ({ ...prev!, isOnline: false }));
-
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
 
-
-
-  // Helper to add new item row
-  const addItem = () => {
-    setItems([...items, { type: ProductType.CAN_20L, quantity: 1 }]);
-  };
-
-  // Helper to remove item row
-  const removeItem = (index: number) => {
-    if (items.length > 1) {
-      const newItems = [...items];
-      newItems.splice(index, 1);
-      setItems(newItems);
-    }
-  };
-
-  // Helper to update item
-  const updateItem = (index: number, field: 'type' | 'quantity', value: any) => {
-    const newItems = [...items];
-    if (field === 'type') newItems[index].type = value;
-    if (field === 'quantity') newItems[index].quantity = Number(value);
-    setItems(newItems);
-  };
-
   const handleGetCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      alert("Geolocation is not supported by your browser");
-      return;
-    }
-
+    if (!navigator.geolocation) { alert("Geolocation not supported"); return; }
     setIsLocating(true);
-    setShowMap(true); // Open map so they can see result
-
     navigator.geolocation.getCurrentPosition((position) => {
       const { latitude, longitude } = position.coords;
-      setCustomerInfo(prev => ({
-        ...prev,
-        lat: latitude,
-        lng: longitude,
-        location: `GPS: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
-      }));
+      // Set GPS coords but DO NOT overwrite the manual address text
+      setGpsCoords({ lat: latitude, lng: longitude });
       setIsLocating(false);
     }, (error) => {
-      console.error("Error obtaining location", error);
-      alert("Unable to retrieve your location");
-      setIsLocating(false);
+      console.error("Error", error); alert("Unable to get location"); setIsLocating(false);
     }, { enableHighAccuracy: true });
   };
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-
   const handlePlaceOrder = async () => {
-    console.log("handlePlaceOrder START");
+    if (!date || !time) { alert("Please select a Delivery Date and Time."); return; }
+    if (!hasItems) { alert("Please select at least one product."); return; }
 
-    // 0. Validation: Mandatory Fields
-    if (!date || !time) {
-      alert("Please select a Delivery Date and Time.");
-      console.log("Validation Failed: Missing date or time");
+    // Validate: Either manual text OR GPS must be present (preferably manual text for clarity)
+    if (!customerInfo.location && !gpsCoords) {
+      alert(t.fillWarning || "Please fill in your Name, Phone and Location.");
       return;
     }
 
     setIsSubmitting(true);
-    console.log("Set isSubmitting to true");
-
     try {
-      // 0.1 Validation: Delivery Time > 30 mins
       const now = new Date();
       const selectedDateTime = new Date(`${date}T${time}`);
-      const timeDiff = selectedDateTime.getTime() - now.getTime();
       const oneHourMs = 60 * 60 * 1000;
       const thirtyMinsMs = 30 * 60 * 1000;
-
       let finalDate = date;
       let finalTime = time;
-
-      // Logic: If selected time is less than 1 hour from NOW (including past), set to Now + 30 mins
-      if (timeDiff < oneHourMs) {
-        console.log("Time validation: selected time too soon, adjusting...");
+      if (selectedDateTime.getTime() - now.getTime() < oneHourMs) {
         const newDeliveryTime = new Date(now.getTime() + thirtyMinsMs);
-        // Format to YYYY-MM-DD
-        const yyyy = newDeliveryTime.getFullYear();
-        const mm = String(newDeliveryTime.getMonth() + 1).padStart(2, '0');
-        const dd = String(newDeliveryTime.getDate()).padStart(2, '0');
-        finalDate = `${yyyy}-${mm}-${dd}`;
-
-        // Format to HH:MM
-        const hh = String(newDeliveryTime.getHours()).padStart(2, '0');
-        const min = String(newDeliveryTime.getMinutes()).padStart(2, '0');
-        finalTime = `${hh}:${min}`;
-
-        // Alert user if we changed it? Or just Update State?
-        // Prompt says "System should automatically set". Displaying a toast/alert is good UX.
-        // alert(`Delivery time updated to ${finalTime} (minimum 30 mins preparation time).`); // Disabled to avoid blocking
-
-        // Update State so UI reflects it (optional, but good)
-        setDate(finalDate);
-        setTime(finalTime);
+        finalDate = newDeliveryTime.toISOString().split('T')[0];
+        finalTime = `${String(newDeliveryTime.getHours()).padStart(2, '0')}:${String(newDeliveryTime.getMinutes()).padStart(2, '0')}`;
+        setDate(finalDate); setTime(finalTime);
       }
 
-      console.log(`Final Date: ${finalDate}, Final Time: ${finalTime}`);
+      // Construct final location string
+      let finalLocation = customerInfo.location;
+      if (gpsCoords) {
+        if (finalLocation) finalLocation += ` (GPS: ${gpsCoords.lat.toFixed(6)}, ${gpsCoords.lng.toFixed(6)})`;
+        else finalLocation = `GPS: ${gpsCoords.lat.toFixed(6)}, ${gpsCoords.lng.toFixed(6)}`;
+      }
 
-      // 1. Check for Existing Customer or Create New
       let customerId = `pub_${Date.now()}`;
-      let customerType: 'REGULAR' | 'RETAIL' | 'PUBLIC' = 'REGULAR'; // Default for new Quick Order users is Regular (can be promoted to Retail by Admin)
-
-      // Helper to wrap promises with timeout
-      function withTimeout<T>(promise: Promise<T>, ms: number = 10000, errorMsg: string = "Operation timed out"): Promise<T> {
-        return Promise.race([
-          promise,
-          new Promise<T>((_, reject) => setTimeout(() => reject(new Error(errorMsg)), ms))
-        ]);
+      let customerType: 'REGULAR' | 'RETAIL' | 'PUBLIC' = 'REGULAR';
+      function withTimeout<T>(promise: Promise<T>, ms: number = 10000): Promise<T> {
+        return Promise.race([promise, new Promise<T>((_, r) => setTimeout(() => r(new Error("Timeout")), ms))]);
+      }
+      const existingCustomer = await withTimeout(findCustomerByPhone(customerInfo.phone), 30000).catch(() => null);
+      if (existingCustomer) {
+        customerId = existingCustomer.id;
+        customerType = existingCustomer.type;
+      } else {
+        await withTimeout(saveCustomer({
+          id: customerId, name: customerInfo.name, phone: customerInfo.phone, type: 'REGULAR',
+          location: finalLocation, shopName: customerInfo.shop, pendingAmount: 0, outstandingCans: 0,
+          email: customerInfo.phone, password: customerInfo.phone
+        }), 30000);
       }
 
-      try {
-        // Check if phone exists (with timeout)
-        console.log("Checking for existing customer...");
-        const existingCustomer = await withTimeout(
-          findCustomerByPhone(customerInfo.phone),
-          30000,
-          "Taking too long to check customer data. Please check connection."
-        );
+      const orderItems = Object.entries(quantities)
+        .filter(([_, val]) => parseInt(val || "0") > 0)
+        .map(([typeStr, valStr]) => {
+          const type = typeStr as ProductType;
+          const rawQty = parseInt(valStr || "0");
+          const config = PRODUCT_CONFIG[type];
 
-        if (existingCustomer) {
-          console.log("Found existing customer:", existingCustomer.name);
-          customerId = existingCustomer.id;
-          customerType = existingCustomer.type;
-        } else {
-          // Create New Profile (with timeout)
-          console.log("Creating new customer profile...");
-          await withTimeout(
-            saveCustomer({
-              id: customerId,
-              name: customerInfo.name,
-              phone: customerInfo.phone,
-              type: 'REGULAR', // Auto-created are Regular by default
-              location: customerInfo.location,
-              shopName: customerInfo.shop,
-              pendingAmount: 0,
-              outstandingCans: 0,
-              email: customerInfo.phone, // Default username is phone
-              password: customerInfo.phone // Default password is phone (as per request)
-            }),
-            30000,
-            "Taking too long to save customer profile."
-          ); // INCREASED TO 30s
-          console.log("New customer created");
-        }
-      } catch (err) {
-        // If customer check fails, we might want to proceed or stop.
-        // For safety, let's stop and alert, as proceed might duplicate data or fail later.
-        console.error("Customer Lookup/Creation Failed:", err);
-        throw new Error(`Customer check failed: ${(err as Error).message}`);
-      }
+          const { roundedQty, isRounded } = calculateSmartRounding(type, rawQty);
+          const activeQty = roundedQty;
 
-      // 2. Prepare Order Items & Calculate Total
-      const orderItems = items.map(item => {
-        const config = PRODUCT_CONFIG[item.type];
+          const calculation = calculateCases(type, activeQty);
+          const pricePerUnit = customerType === 'RETAIL' ? config.retailPrice : config.normalPrice;
+          let itemTotal = type.includes('Bottle')
+            ? (calculation.cases + (calculation.loose > 0 ? 1 : 0)) * pricePerUnit
+            : activeQty * pricePerUnit;
 
-        // Smart Rounding
-        const { roundedQty, isRounded, extra } = calculateSmartRounding(item.type, item.quantity);
-        const activeQty = roundedQty; // Use rounded quantity for billing
-
-        const calculation = calculateCases(item.type, activeQty);
-
-        // Dynamic Pricing based on Customer Type
-        const pricePerUnit = customerType === 'RETAIL' ? config.retailPrice : config.normalPrice;
-
-        let itemTotal = 0;
-        if (item.type.includes('Bottle')) {
-          // Price is per case
-          itemTotal = (calculation.cases + (calculation.loose > 0 ? 1 : 0)) * pricePerUnit;
-        } else {
-          // Price is per unit
-          itemTotal = activeQty * pricePerUnit;
-        }
-
-        return {
-          productType: item.type,
-          quantity: activeQty, // Save the ROUNDED quantity to the order
-          calculatedCases: item.type.includes('Bottle') ? calculation.cases + (calculation.loose > 0 ? 1 : 0) : null,
-          pricePerUnit,
-          totalPrice: itemTotal,
-          originalQuantity: isRounded ? item.quantity : null
-        };
-      });
+          return {
+            productType: type, quantity: activeQty,
+            calculatedCases: type.includes('Bottle') ? calculation.cases + (calculation.loose > 0 ? 1 : 0) : null,
+            pricePerUnit, totalPrice: itemTotal, originalQuantity: isRounded ? rawQty : null
+          };
+        });
 
       const grandTotal = orderItems.reduce((sum, item) => sum + item.totalPrice, 0);
-      console.log(`Calculated Total: ${grandTotal}`);
-
-      // 3. Create Order
       const newOrder: Order = {
-        id: Date.now().toString(),
-        customerId: customerId,
-        customerName: customerInfo.name,
-        customerType: customerType,
-        items: orderItems,
-        totalAmount: grandTotal,
-        status: OrderStatus.PENDING,
-        deliveryLocation: customerInfo.location,
-        deliveryDate: finalDate,
-        deliveryTime: finalTime,
+        id: Date.now().toString(), customerId, customerName: customerInfo.name, customerType,
+        items: orderItems, totalAmount: grandTotal, status: OrderStatus.PENDING,
+        deliveryLocation: finalLocation, deliveryDate: finalDate, deliveryTime: finalTime,
         createdAt: new Date().toISOString()
       };
-
-      console.log("Saving new order...", newOrder);
-
-      // Wrap saveOrder in a timeout to prevent infinite hanging if network/Firestore is blocked
-      const savePromise = saveOrder(newOrder);
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Network timeout. Please check your internet connection or disable AdBlockers.")), 15000)
-      );
-
-      await Promise.race([savePromise, timeoutPromise]);
-
-      console.log("Order saved successfully.");
+      await Promise.race([saveOrder(newOrder), new Promise((_, r) => setTimeout(() => r(new Error("Timeout")), 15000))]);
       setIsSuccess(true);
-      console.log("Set isSuccess to true");
-
-    } catch (error) {
-      console.error("Order Placement Failed:", error);
-      alert(`Failed to place order: ${(error as Error).message}.`);
-    } finally {
-      setIsSubmitting(false);
-      console.log("Set isSubmitting to false");
-    }
+    } catch (error) { alert(`Failed: ${(error as Error).message}`); }
+    finally { setIsSubmitting(false); }
   };
 
-  const isValid = customerInfo.name && customerInfo.phone && customerInfo.location;
+  const isValid = customerInfo.name && customerInfo.phone && (customerInfo.location || gpsCoords) && hasItems;
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 flex items-center justify-center py-12">
-      <div className="w-full max-w-2xl">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-[#4CAF50]">EcoExpress Logistics</h1>
-          <p className="text-slate-500 mt-2">{t?.quickOrderTitle || "Quick Order Form"}</p>
+    <div className="min-h-screen bg-slate-50 relative pb-32 font-sans overflow-x-hidden">
+
+      {/* Background Water Image - Fixed Position */}
+      <div className="fixed inset-0 z-0 opacity-20 pointer-events-none">
+        <img src="/water-bg.png" alt="" className="w-full h-full object-cover" />
+      </div>
+
+      {/* Content z-index wrapper */}
+      <div className="relative z-10 w-full max-w-lg mx-auto">
+
+        {/* 1. Header: Green Theme */}
+        <div className="px-6 py-6 pb-4 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-extrabold tracking-tight text-[#4CAF50] drop-shadow-sm">EcoExpress</h1>
+            <p className="text-slate-500 text-sm font-medium">{t.quickOrder || "Quick Order"}</p>
+          </div>
+
+          {/* Trust Badges */}
+          <div className="flex gap-2">
+            <div className="flex items-center gap-1 px-1.5 py-1 bg-white/80 backdrop-blur rounded text-[9px] font-bold text-slate-500 uppercase border border-slate-200">
+              <ShieldCheck size={10} className="text-[#4CAF50]" /> ISI
+            </div>
+            <div className="flex items-center gap-1 px-1.5 py-1 bg-white/80 backdrop-blur rounded text-[9px] font-bold text-slate-500 uppercase border border-slate-200">
+              <ShieldCheck size={10} className="text-[#4CAF50]" /> FSSAI
+            </div>
+          </div>
         </div>
 
         {!isSuccess ? (
-          <div className="space-y-6 animate-fadeIn">
+          <div className="px-4 space-y-6">
 
-            {/* Network Diagnostic Banner (Only if issues detected) */}
-            {networkStatus && (!networkStatus.isOnline || !networkStatus.firebaseConfigured) && (
-              <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-md shadow-sm mb-4">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0">
-                    <span className="text-2xl">⚠️</span>
-                  </div>
-                  <div className="ml-3">
-                    <h3 className="text-sm font-medium text-red-800">Connection Issue Detected</h3>
-                    <div className="mt-2 text-sm text-red-700">
-                      <ul className="list-disc pl-5 space-y-1">
-                        {!networkStatus.isOnline && <li>You are currently offline. Please check your internet.</li>}
-                        {!networkStatus.firebaseConfigured && <li>System Configuration Error: API Keys missing.</li>}
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </div>
+            {/* Connection Alert */}
+            {networkStatus && !networkStatus.isOnline && (
+              <div className="text-xs text-red-600 bg-red-50 p-2 rounded">⚠️ No Internet Connection</div>
             )}
 
-            {/* 1. Customer Details Section */}
-            <Card title={t?.yourDetails || "Your Details"}>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input label={t?.name || "Name"} value={customerInfo.name} onChange={e => setCustomerInfo({ ...customerInfo, name: e.target.value })} />
-                <Input
-                  label={t?.phone || "Phone"}
-                  value={customerInfo.phone}
-                  onChange={e => {
-                    const val = e.target.value.replace(/\D/g, '');
-                    setCustomerInfo({ ...customerInfo, phone: val });
-                  }}
-                  maxLength={10}
-                  placeholder="10-digit number"
-                />
+            {/* 2. Customer Section: Glassmorphism Card */}
+            <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl shadow-xl shadow-slate-200/50 border border-white/60 space-y-4">
+              <div className="grid grid-cols-1 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-[#4CAF50] uppercase tracking-wider mb-1">{t.yourDetails || "Your Details"}</label>
+                  <input
+                    value={customerInfo.name}
+                    onChange={e => setCustomerInfo({ ...customerInfo, name: e.target.value })}
+                    placeholder={t.name ? `${t.name}` : "Name / பெயர்"}
+                    className="w-full text-lg border-b-2 border-slate-200 focus:border-[#4CAF50] py-2 outline-none bg-transparent placeholder-slate-400 transition-colors"
+                  />
+                </div>
+                <div>
+                  <input
+                    type="tel"
+                    value={customerInfo.phone}
+                    onChange={e => setCustomerInfo({ ...customerInfo, phone: e.target.value.replace(/\D/g, '') })}
+                    placeholder={t.phone ? `${t.phone}` : "Mobile / அலைபேசி"}
+                    maxLength={10}
+                    className="w-full text-lg border-b-2 border-slate-200 focus:border-[#4CAF50] py-2 outline-none bg-transparent placeholder-slate-400 transition-colors"
+                  />
+                </div>
               </div>
 
-              {/* Location with Map Selector */}
-              <div className="relative">
-                <Input
-                  label={t?.locationLabel || "Location / Address"}
+              <div className="pt-2">
+                <label className="block text-xs font-bold text-[#4CAF50] uppercase tracking-wider mb-2">{t.locationLabel || "Location"}</label>
+                <div className="flex gap-2 mb-2">
+                  <button onClick={handleGetCurrentLocation} className="flex-1 bg-[#4CAF50] text-white py-3 rounded-xl text-sm font-bold shadow-lg shadow-green-200 active:scale-95 transition-transform flex items-center justify-center gap-2">
+                    <Navigation size={16} />
+                    {isLocating ? '...' : (t.useGps || 'Use GPS')}
+                  </button>
+                  <button onClick={() => setShowMap(true)} className="px-4 bg-white text-slate-600 border border-slate-200 rounded-xl text-sm font-bold active:scale-95 transition-transform">
+                    {t.mapButton || "Map"}
+                  </button>
+                </div>
+
+                {/* GPS Status Badge */}
+                {gpsCoords && (
+                  <div className="flex items-center gap-2 mb-3 bg-green-50 p-2 rounded-lg border border-green-100">
+                    <MapPin size={14} className="text-[#4CAF50]" />
+                    <span className="text-xs font-bold text-green-700">{t.gpsSet || "GPS Location Pinned ✓"}</span>
+                    <button
+                      onClick={() => setGpsCoords(null)}
+                      className="ml-auto text-[10px] text-red-400 font-bold hover:text-red-600 border-l border-green-200 pl-2">
+                      CLEAR
+                    </button>
+                  </div>
+                )}
+
+                <input
                   value={customerInfo.location}
                   onChange={e => setCustomerInfo({ ...customerInfo, location: e.target.value })}
-                  placeholder={t?.locationPlaceholder || "Select from Map for accuracy"}
-                  readOnly={false} // Allow manual edit if needed
-                  className="pr-48" // Add padding for absolute buttons
+                  placeholder={t.addressPlaceholder || "Address (Optional if GPS used)"}
+                  className="w-full text-sm text-slate-900 bg-slate-50/50 p-3 rounded-xl outline-none border border-transparent focus:bg-white focus:border-green-200"
                 />
-                <div className="absolute right-2 top-8 flex gap-2">
-                  <button
-                    onClick={handleGetCurrentLocation}
-                    className={`p-1 px-2 rounded-md flex items-center gap-1 text-sm font-semibold transition-colors ${isLocating ? 'bg-slate-100 text-slate-500' : 'text-blue-600 hover:bg-blue-50'}`}
-                    title="Use Current Location"
-                  >
-                    {isLocating ? '📡 Locating...' : `📡 ${t?.gps || "GPS"}`}
-                  </button>
-                  <button
-                    onClick={() => setShowMap(true)}
-                    className="text-[#4CAF50] hover:text-[#43a047] p-1 px-2 rounded-md hover:bg-green-50 flex items-center gap-1 text-sm font-semibold transition-colors"
-                    title="Select from Map"
-                  >
-                    <span>📍</span> {t?.mapButton || "Map"}
-                  </button>
+              </div>
+
+              <div className="pt-2 grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-[#4CAF50] uppercase tracking-wider mb-2">{t.deliveryDate || "Delivery Date"}</label>
+                  <input
+                    type="date"
+                    value={date}
+                    min={new Date().toISOString().split('T')[0]}
+                    onChange={e => setDate(e.target.value)}
+                    className="w-full text-sm text-slate-900 bg-slate-50/50 p-3 rounded-xl outline-none border border-transparent focus:bg-white focus:border-green-200"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-[#4CAF50] uppercase tracking-wider mb-2">{t.deliveryTime || "Delivery Time"}</label>
+                  <input
+                    type="time"
+                    value={time}
+                    onChange={e => setTime(e.target.value)}
+                    className="w-full text-sm text-slate-900 bg-slate-50/50 p-3 rounded-xl outline-none border border-transparent focus:bg-white focus:border-green-200"
+                  />
                 </div>
               </div>
-              <p className="text-xs text-slate-400 mt-1">
-                * {t?.locationHint || "Use GPS or Map to ensure delivery within 10 meters accuracy."}
-              </p>
+            </div>
 
-              <Input label={t?.shopName || "Shop Name (Optional)"} value={customerInfo.shop} onChange={e => setCustomerInfo({ ...customerInfo, shop: e.target.value })} />
-            </Card>
+            {/* 3. MENU LIST - Green Theme */}
+            <div className="space-y-4">
+              <div className="flex justify-between items-end px-2">
+                <label className="block text-xs font-bold text-[#4CAF50] uppercase tracking-wider">{t.selectProducts || "Select Products"}</label>
+                <button onClick={() => setShowPriceList(true)} className="text-xs text-[#4CAF50] font-bold flex items-center gap-1 hover:underline">
+                  <Info size={14} /> {t.priceList || "Price List"}
+                </button>
+              </div>
 
-            {/* 2. Order Items Section */}
-            <Card
-              title={t?.orderItems || "Order Items"}
-              action={<button onClick={() => setShowPriceList(true)} className="text-[#4CAF50] text-sm font-semibold hover:underline flex items-center gap-1"><Info size={16} /> {t?.viewPrices || "View Prices"}</button>}
-            >
-              <div className="space-y-4 mb-6">
-                {items.map((item, index) => (
-                  <div key={index} className="p-4 bg-slate-50 rounded-lg border border-slate-200 relative transition-all">
-                    {items.length > 1 && (
-                      <button
-                        onClick={() => removeItem(index)}
-                        className="absolute -top-2 -right-2 bg-white text-slate-400 hover:text-red-500 rounded-full p-1 shadow border border-slate-100 z-10"
-                        title="Remove Item"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                      </button>
-                    )}
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-                      <div className="md:col-span-7">
-                        <Select
-                          label={index === 0 ? (t?.product || "Product") : ""}
-                          options={Object.values(ProductType).map(t => ({ value: t, label: t }))}
-                          value={item.type}
-                          onChange={e => updateItem(index, 'type', e.target.value)}
-                          className="mb-0"
-                        />
+              <div className="grid grid-cols-1 gap-4">
+                {Object.values(ProductType).map(tKey => {
+                  const rawQtyStr = quantities[tKey] || "0";
+                  const rawQty = parseInt(rawQtyStr);
+                  const isSelected = rawQty > 0;
+                  const config = PRODUCT_CONFIG[tKey];
+                  const caseSize = config.itemsPerCase;
+
+                  const { roundedQty, extra } = calculateSmartRounding(tKey, rawQty);
+                  const hasRounding = extra > 0;
+                  const diff = roundedQty - rawQty;
+                  const calc = calculateCases(tKey, roundedQty);
+
+                  return (
+                    <div key={tKey} className={`flex flex-col p-4 rounded-3xl border-2 transition-all duration-300 ${isSelected ? 'border-[#4CAF50] bg-green-50/90 shadow-lg shadow-green-100' : 'border-white bg-white/80 backdrop-blur-md shadow-sm'}`}>
+
+                      <div className="flex items-start justify-between">
+                        {/* Left: Product Info */}
+                        <div className="flex flex-col flex-1 pr-4">
+                          <div className="font-extrabold text-slate-900 text-lg leading-tight">{tKey}</div>
+                          <div className="text-[10px] text-slate-500 font-medium mb-1 mt-1">
+                            {tKey.includes('20L') ? '20லி கேன்'
+                              : (tKey.includes('300ml') ? '300மி.லி' : 'பாட்டில்')}
+                            <span className="mx-1">•</span>
+                            <span className="font-bold text-[#4CAF50]">{caseSize} {t.itemsPerCase || "items/case"}</span>
+                          </div>
+                          <div className="font-bold text-slate-900 mt-1">₹{config.normalPrice}<span className="text-[10px] font-normal text-slate-500"> {t.perCaseSuffix || "/case"}</span></div>
+                        </div>
+
+                        {/* Right: Pure Input (No Steppers) */}
+                        <div className="flex items-center">
+                          <input
+                            type="number"
+                            value={rawQtyStr === "0" ? "" : rawQtyStr}
+                            onChange={e => updateQuantity(tKey, e.target.value)}
+                            placeholder="0"
+                            className={`w-20 h-14 text-center text-2xl font-black rounded-2xl outline-none focus:ring-4 transition-all ${isSelected ? 'bg-white text-[#4CAF50] ring-green-200' : 'bg-slate-100 text-slate-400 focus:bg-white focus:text-slate-900 focus:ring-green-100'}`}
+                          />
+                        </div>
                       </div>
-                      <div className="md:col-span-5">
-                        <Input
-                          label={index === 0 ? (t?.quantity || "Quantity") : ""}
-                          type="number"
-                          value={item.quantity}
-                          onChange={e => updateItem(index, 'quantity', e.target.value)}
-                          min={1}
-                          className="mb-0"
-                        />
-                      </div>
+
+                      {/* INFO: Feedback */}
+                      {isSelected && (
+                        <div className={`mt-3 p-3 rounded-xl text-xs leading-relaxed transition-all animate-fadeIn ${hasRounding ? 'bg-[#4CAF50] text-white' : 'bg-white text-green-800 border border-green-100'}`}>
+                          {tKey.includes('Bottle') ? (
+                            <>
+                              <div className="font-bold flex items-center gap-1">
+                                {hasRounding ? (t.roundedUp || '✨ Rounded Up') : (t.perfectFit || '✓ Perfect Fit')}
+                              </div>
+                              <div className="opacity-95 mt-0.5">
+                                {t.youGet || "You get"} <b>{roundedQty}</b> {t.bottles || "bottles"} ({calc.display}).
+                                {hasRounding && ` (${t.includes || "Includes"} ${diff} ${t.extra || "extra"})`}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="font-bold">{t.total || "Total"}: {roundedQty} {t.cans || "Cans"}</div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    {item.type.includes('Bottle') && (
-                      <p className="text-xs text-[#4CAF50] mt-1 text-right">
-                        {(() => {
-                          const { roundedQty, isRounded, extra } = calculateSmartRounding(item.type, item.quantity);
-                          const calc = calculateCases(item.type, roundedQty);
-                          return (
-                            <div>
-                              <span className="font-bold">{calc.display}</span>
-                              {isRounded && (
-                                <span className="block text-[10px] text-blue-600">
-                                  (Rounded up from {item.quantity}. Includes {extra} extra bottles.)
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })()}
-                      </p>
-                    )}
-                  </div>
-                ))}
+                  )
+                })}
               </div>
+            </div>
 
-              <Button variant="secondary" onClick={addItem} className="w-full mb-6 border-dashed border-2 text-slate-500 hover:text-[#4CAF50] hover:border-[#4CAF50]">
-                + {t?.addProduct || "Add Another Product"}
-              </Button>
+            {/* Spacer */}
+            <div className="h-4"></div>
 
-              <div className="border-t border-slate-100 pt-6">
-                <h4 className="text-sm font-bold text-slate-700 mb-3">{t?.preferredTime || "Preferred Delivery Time"}</h4>
-                <div className="flex gap-4">
-                  <Input type="date" label="Date" className="flex-1 mb-0" value={date} onChange={e => setDate(e.target.value)} />
-                  <Input type="time" label="Time" className="flex-1 mb-0" value={time} onChange={e => setTime(e.target.value)} />
+            {/* Bottom Action Bar */}
+            <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/90 backdrop-blur-md border-t border-slate-100 flex items-center gap-4 z-50 safe-area-bottom pb-8 shadow-[0_-5px_20px_rgba(0,0,0,0.05)]">
+              <div className="flex-1 flex flex-col justify-center">
+                <div className="text-[10px] uppercase font-bold text-slate-400">{t.totalEstimate || "Total Estimate"}</div>
+                <div className="text-3xl font-black text-[#4CAF50]">
+                  ₹{Object.entries(quantities).reduce((sum, [typeStr, valStr]) => {
+                    const qty = parseInt(valStr || "0");
+                    if (qty === 0) return sum;
+                    const type = typeStr as ProductType;
+                    const config = PRODUCT_CONFIG[type];
+                    const { roundedQty } = calculateSmartRounding(type, qty);
+                    const calc = calculateCases(type, roundedQty);
+                    const price = config.normalPrice;
+                    let itemTotal = 0;
+                    if (type.includes('Bottle')) {
+                      const casesToCharge = calc.cases + (calc.loose > 0 ? 1 : 0);
+                      itemTotal = casesToCharge * price;
+                    } else {
+                      itemTotal = roundedQty * price;
+                    }
+                    return sum + itemTotal;
+                  }, 0)}
+                </div>
+                {/* Pay on Delivery Text */}
+                <div className="text-[9px] text-slate-400 mt-1 max-w-[150px] leading-tight">
+                  {t.payOnDelivery || "Total amount needs to be paid during delivery"}
                 </div>
               </div>
-            </Card>
-
-            {/* Submit Action */}
-            <Card className="sticky bottom-4 shadow-xl border-[#4CAF50]/20">
               <Button
                 onClick={handlePlaceOrder}
-                className="w-full py-4 text-lg"
+                className="bg-[#4CAF50] text-white px-8 py-4 rounded-2xl font-bold text-lg shadow-lg shadow-green-200 active:scale-95 transition-transform flex-1 hover:bg-[#43A047]"
                 disabled={!isValid || isSubmitting}
                 isLoading={isSubmitting}
               >
-                {isSubmitting ? (t?.placingOrder || "Placing Order...") : (t?.placeOrderButton || "Place Order Now")}
+                {isSubmitting ? '...' : (t?.placeOrderButton || 'ORDER NOW')}
               </Button>
-              {!isValid && (
-                <p className="text-xs text-center text-red-400 mt-2">
-                  {t?.fillWarning || "Please fill in your Name, Phone and Location."}
-                </p>
-              )}
-            </Card>
+            </div>
+
           </div>
         ) : (
-          <Card className="text-center py-12 animate-fadeIn">
-            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-              <span className="text-green-500 text-5xl">✓</span>
-            </div>
-            <h2 className="text-3xl font-bold text-slate-800 mb-2">{t?.orderPlaced || "Order Placed!"}</h2>
-            <p className="text-slate-500 mb-8 max-w-xs mx-auto">
-              {t?.thankYouMsg ? t.thankYouMsg.replace('{name}', customerInfo.name) : `Thank you, ${customerInfo.name}. We have received your order and will contact you shortly.`}
-            </p>
-            <Button className="w-full max-w-xs mx-auto" variant="secondary" onClick={() => window.location.reload()}>
-              {t?.placeAnother || "Place Another Order"}
-            </Button>
-          </Card>
-        )}
-
-        {/* Map Selection Modal - REAL MAP */}
-        {showMap && (
-          <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col h-[85vh]">
-              <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
-                <div>
-                  <h3 className="font-bold text-lg text-slate-800">Pin/Select Delivery Location</h3>
-                  <p className="text-xs text-slate-500">Drag map or click to set exact spot.</p>
-                </div>
-                <button onClick={() => setShowMap(false)} className="text-slate-400 hover:text-red-500 text-2xl">×</button>
-              </div>
-
-              <div className="flex-grow relative bg-slate-100">
-                {/* Leaflet Map */}
-                <LocationPickerMap
-                  onLocationSelect={(lat, lng) => {
-                    setCustomerInfo(prev => ({
-                      ...prev,
-                      lat,
-                      lng,
-                      // IMMEDIATELY update the location string so validation passes
-                      location: `Selected: ${lat.toFixed(6)}, ${lng.toFixed(6)}`
-                    }));
-                  }}
-                  initialLat={customerInfo.lat}
-                  initialLng={customerInfo.lng}
-                />
-
-                <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-[1000] bg-white px-4 py-2 rounded-full shadow-lg text-sm font-bold text-slate-700 flex items-center gap-2">
-                  <span>Selected:</span>
-                  <span className="text-[#4CAF50]">{customerInfo.lat.toFixed(5)}, {customerInfo.lng.toFixed(5)}</span>
-                </div>
-              </div>
-
-              <div className="p-4 border-t border-slate-200 flex justify-end bg-slate-50">
-                <Button onClick={() => setShowMap(false)}>Confirm Location</Button>
-              </div>
-            </div>
+          <div className="flex flex-col items-center justify-center h-[60vh] px-6 text-center animate-fadeIn relative z-10">
+            <div className="w-20 h-20 bg-[#4CAF50] text-white rounded-full flex items-center justify-center text-4xl mb-6 shadow-xl shadow-green-200">✓</div>
+            <h2 className="text-2xl font-bold mb-2 text-slate-800">{t.orderPlaced || "Order Placed!"}</h2>
+            <p className="text-slate-500 mb-8 max-w-xs mx-auto">{t.thankYouMsg?.replace("{name}", customerInfo.name) || `Thank you, ${customerInfo.name}. We have received your order.`}</p>
+            <button onClick={() => window.location.reload()} className="text-[#4CAF50] font-bold border-b-2 border-[#4CAF50] pb-1 hover:text-[#43A047]">
+              {t.placeAnother || "Place New Order"}
+            </button>
           </div>
         )}
 
-        {/* Price List Modal */}
-        {showPriceList && <PriceListModal onClose={() => setShowPriceList(false)} />}
       </div>
+
+      {/* Map Modal */}
+      {showMap && (
+        <div className="fixed inset-0 z-[100] bg-white flex flex-col animate-fadeIn">
+          <div className="flex justify-between items-center p-4 border-b">
+            <h3 className="font-bold text-slate-800">{t.setLocation || "Set Location"}</h3>
+            <button onClick={() => setShowMap(false)} className="text-slate-400 hover:text-red-500">{t.close || "Close"}</button>
+          </div>
+          <div className="flex-grow relative">
+            <LocationPickerMap
+              onLocationSelect={(lat, lng) => {
+                // Determine whether to set GPS or simply explore. Since it's a "Picker", we set GPS coords.
+                // We do NOT set the address text to coordinates.
+                setGpsCoords({ lat, lng });
+              }}
+              // Initialize Map with existing GPS coords or default
+              initialLat={gpsCoords?.lat || 9.1726} initialLng={gpsCoords?.lng || 77.8808}
+            />
+            <div className="absolute bottom-8 left-4 right-4 bg-[#4CAF50] text-white p-4 rounded-xl text-center font-bold shadow-xl shadow-green-200" onClick={() => setShowMap(false)}>
+              {t.confirmLocation || "Confirm Location"}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Price List Modal */}
+      {showPriceList && <PriceListModal onClose={() => setShowPriceList(false)} t={t} />}
+
     </div>
   );
 };

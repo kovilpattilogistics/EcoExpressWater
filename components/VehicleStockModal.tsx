@@ -3,7 +3,7 @@ import { Button, Input } from './SharedComponents';
 import { ProductType, InventoryItem, CanState } from '../types';
 import { PRODUCT_CONFIG } from '../constants';
 import { updateVehicleInventory, getVehicleInventory } from '../services/firestoreService';
-import { Save, Plus, Minus, X } from 'lucide-react';
+import { Save, X } from 'lucide-react';
 
 interface VehicleStockModalProps {
     driverId: string;
@@ -42,18 +42,20 @@ export const VehicleStockModal: React.FC<VehicleStockModalProps> = ({ driverId, 
         loadStock();
     }, [driverId]);
 
-    const handleQuantityChange = (index: number, delta: number) => {
+    const handleQuantityChange = (index: number, value: string) => {
         const newItems = [...items];
-        const newQty = Math.max(0, newItems[index].quantity + delta);
+        // Parse int, default to 0 if NaN/Empty. Prevent negatives.
+        let newQty = parseInt(value, 10);
+        if (isNaN(newQty)) newQty = 0;
+        newQty = Math.max(0, newQty);
+
         newItems[index].quantity = newQty;
         setItems(newItems);
     };
 
     const handleSave = async () => {
-        // Save each item
-        for (const item of items) {
-            await updateVehicleInventory(driverId, item, true); // true = overwrite/set exact value
-        }
+        // Save all items in one batch operation (Atomic & Safe)
+        await updateVehicleInventory(driverId, items, 'SET');
         onUpdate();
         onClose();
     };
@@ -80,19 +82,14 @@ export const VehicleStockModal: React.FC<VehicleStockModalProps> = ({ driverId, 
                             </div>
 
                             <div className="flex items-center gap-3">
-                                <button
-                                    onClick={() => handleQuantityChange(idx, -1)}
-                                    className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-500 hover:bg-red-50 hover:text-red-500 hover:border-red-200"
-                                >
-                                    <Minus size={16} />
-                                </button>
-                                <span className="w-8 text-center font-bold text-lg">{item.quantity}</span>
-                                <button
-                                    onClick={() => handleQuantityChange(idx, 1)}
-                                    className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-500 hover:bg-green-50 hover:text-green-500 hover:border-green-200"
-                                >
-                                    <Plus size={16} />
-                                </button>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    value={item.quantity === 0 ? '' : item.quantity}
+                                    placeholder="0"
+                                    onChange={(e) => handleQuantityChange(idx, e.target.value)}
+                                    className="w-24 p-2 text-center text-lg font-bold border border-slate-200 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition bg-white"
+                                />
                             </div>
                         </div>
                     ))}

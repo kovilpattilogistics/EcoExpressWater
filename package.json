@@ -12,6 +12,7 @@
     "@types/leaflet": "^1.9.21",
     "firebase": "^10.8.0",
     "leaflet": "^1.9.4",
+    "leaflet-geosearch": "^4.2.2",
     "lucide-react": "^0.344.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
