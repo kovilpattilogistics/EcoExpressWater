@@ -318,10 +318,10 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
         return {
           productType: item.type,
           quantity: activeQty, // Save the ROUNDED quantity to the order
-          calculatedCases: item.type.includes('Bottle') ? calculation.cases + (calculation.loose > 0 ? 1 : 0) : undefined,
+          calculatedCases: item.type.includes('Bottle') ? calculation.cases + (calculation.loose > 0 ? 1 : 0) : null,
           pricePerUnit,
           totalPrice: itemTotal,
-          originalQuantity: isRounded ? item.quantity : undefined
+          originalQuantity: isRounded ? item.quantity : null
         };
       });
 

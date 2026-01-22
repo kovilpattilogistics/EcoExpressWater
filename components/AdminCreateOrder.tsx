@@ -96,7 +96,7 @@ export const AdminCreateOrder: React.FC<{ onBack: () => void }> = ({ onBack }) =
             return {
                 productType: item.type,
                 quantity: item.quantity,
-                calculatedCases: item.type.includes('Bottle') ? calculation.cases + (calculation.loose > 0 ? 1 : 0) : undefined,
+                calculatedCases: item.type.includes('Bottle') ? calculation.cases + (calculation.loose > 0 ? 1 : 0) : null,
                 pricePerUnit,
                 totalPrice: itemTotal
             };

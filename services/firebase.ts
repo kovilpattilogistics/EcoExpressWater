@@ -11,5 +11,12 @@ const firebaseConfig = {
     measurementId: (import.meta.env as any).VITE_FIREBASE_MEASUREMENT_ID || "G-81FL6EXMSE"
 };
 
+console.log("🔥 Firebase Config Loaded:", {
+    projectId: firebaseConfig.projectId,
+    authDomain: firebaseConfig.authDomain,
+    hasApiKey: !!firebaseConfig.apiKey,
+    isFallback: !import.meta.env.VITE_FIREBASE_API_KEY
+});
+
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
