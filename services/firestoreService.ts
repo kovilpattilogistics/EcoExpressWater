@@ -187,7 +187,8 @@ export const subscribeInventory = (callback: (items: InventoryItem[]) => void) =
 export const setInventoryQuantity = async (item: InventoryItem) => {
     const docId = `${item.type}_${item.canState || 'NA'}`.replace(/\s+/g, '_');
     const itemRef = doc(db, COLLECTIONS.INVENTORY, docId);
-    await setDoc(itemRef, item, { merge: true });
+    const safeItem = cleanData(item);
+    await setDoc(itemRef, safeItem, { merge: true });
 };
 
 // Implementation for updateInventory using transaction (safer) or read-write
@@ -202,7 +203,8 @@ export const updateInventoryReal = async (item: InventoryItem, isAddition: boole
             const sfDoc = await transaction.get(itemRef);
             if (!sfDoc.exists()) {
                 if (isAddition) {
-                    transaction.set(itemRef, item);
+                    const safeItem = cleanData(item);
+                    transaction.set(itemRef, safeItem);
                 }
                 // If subtraction on non-exist, do nothing?
             } else {
@@ -267,7 +269,8 @@ export const updateVehicleInventory = async (driverId: string, item: InventoryIt
                 items.push(item);
             }
 
-            t.set(docRef, { driverId, items }, { merge: true });
+            const safeData = cleanData({ driverId, items });
+            t.set(docRef, safeData, { merge: true });
         });
     } catch (e) {
         console.error("Vehicle update failed", e);
@@ -277,7 +280,8 @@ export const updateVehicleInventory = async (driverId: string, item: InventoryIt
 // --- Transactions ---
 
 export const addTransaction = async (transaction: Transaction) => {
-    await addDoc(collection(db, COLLECTIONS.TRANSACTIONS), transaction);
+    const safeTrans = cleanData(transaction);
+    await addDoc(collection(db, COLLECTIONS.TRANSACTIONS), safeTrans);
 };
 
 export const subscribeTransactions = (callback: (transactions: Transaction[]) => void) => {
