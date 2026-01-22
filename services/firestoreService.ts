@@ -30,6 +30,29 @@ const COLLECTIONS = {
 };
 
 // --- Helpers (Pure Functions) ---
+
+// Helper to sanitize data for Firestore (removes undefined, converts NaN to null)
+// This strictly prevents "Unsupported field value: undefined" errors which cause silent hangs.
+const cleanData = (data: any): any => {
+    if (data === undefined) return null;
+    if (Number.isNaN(data)) return null;
+    if (data === null) return null;
+
+    if (Array.isArray(data)) {
+        return data.map(item => cleanData(item));
+    }
+
+    if (typeof data === 'object') {
+        const cleaned: any = {};
+        for (const key in data) {
+            cleaned[key] = cleanData(data[key]);
+        }
+        return cleaned;
+    }
+
+    return data;
+};
+
 // Copied from mockService for consistency
 export const calculateCases = (productType: ProductType, quantity: number): { cases: number, loose: number, display: string } => {
     const config = PRODUCT_CONFIG[productType];
@@ -87,9 +110,19 @@ export const getOrders = async (): Promise<Order[]> => {
 };
 
 export const saveOrder = async (order: Order) => {
+    console.log("🔥 [firestoreService] saveOrder called for:", order.id);
     // Use order.id as document ID
     const orderRef = doc(db, COLLECTIONS.ORDERS, order.id);
-    await setDoc(orderRef, order, { merge: true });
+    const safeOrder = cleanData(order);
+    console.log("🔥 [firestoreService] Cleaned Order Payload:", safeOrder);
+
+    try {
+        await setDoc(orderRef, safeOrder, { merge: true });
+        console.log("✅ [firestoreService] saveOrder Success:", order.id);
+    } catch (error) {
+        console.error("❌ [firestoreService] saveOrder FAILED:", error);
+        throw error;
+    }
 };
 
 export const deleteOrder = async (orderId: string) => {
@@ -112,8 +145,11 @@ export const getCustomers = async (): Promise<Customer[]> => {
 };
 
 export const saveCustomer = async (customer: Customer) => {
+    console.log("🔥 [firestoreService] saveCustomer called for:", customer.id);
     const customerRef = doc(db, COLLECTIONS.CUSTOMERS, customer.id);
-    await setDoc(customerRef, customer, { merge: true });
+    const safeCustomer = cleanData(customer);
+    await setDoc(customerRef, safeCustomer, { merge: true });
+    console.log("✅ [firestoreService] saveCustomer Success");
 };
 
 export const deleteCustomer = async (customerId: string) => {
