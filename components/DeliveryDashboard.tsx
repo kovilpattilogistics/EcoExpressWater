@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, Button, StatusBadge } from './SharedComponents';
 import { subscribeOrders, saveOrder, getVehicleInventory, updateVehicleInventory } from '../services/firestoreService';
 import { Order, OrderStatus, ProductType, CanState, InventoryItem } from '../types';
-import { Map, Truck, PackageCheck, CheckCircle, Navigation, Wallet, Package, Clock, ShieldAlert, Edit2, Save, X, Plus } from 'lucide-react';
+import { Map, Truck, PackageCheck, CheckCircle, Navigation, Wallet, Package, Clock, ShieldAlert, Edit2, Save, X, Plus, Calendar } from 'lucide-react';
 import { DRIVER_CREDENTIALS, PRODUCT_CONFIG } from '../constants';
 import { VehicleStockModal } from './VehicleStockModal';
 
@@ -13,6 +13,9 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
   const [showStockModal, setShowStockModal] = useState(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [showValidation, setShowValidation] = useState(false);
+
+  // Date Filtering State
+  const [selectedDate, setSelectedDate] = useState<string>('');
 
   // Modification State
   const [isEditingOrder, setIsEditingOrder] = useState(false);
@@ -30,6 +33,70 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
     setVehicleStock(stock);
   };
 
+  useEffect(() => {
+    loadData();
+    const unsub = subscribeOrders((allOrders) => {
+      const sorted = allOrders.sort((a, b) => new Date(a.deliveryDate).getTime() - new Date(b.deliveryDate).getTime());
+      setOrders(sorted);
+
+      // Auto-select first date if not set
+      if (!selectedDate && sorted.length > 0) {
+        const firstActive = sorted.find(o => o.status !== OrderStatus.DELIVERED && o.status !== OrderStatus.COMPLETED);
+        if (firstActive) setSelectedDate(firstActive.deliveryDate);
+        else if (sorted.length > 0) setSelectedDate(sorted[0].deliveryDate);
+      }
+    });
+    return () => unsub();
+  }, []); // Run once on mount
+
+  // Sync editing state
+  useEffect(() => {
+    if (selectedOrder) {
+      setEditedItems(selectedOrder.items);
+      setIsEditingOrder(false);
+    }
+  }, [selectedOrder]);
+
+  // Derived Stats & Filtering
+  const activeOrders = orders.filter(o =>
+    o.status !== OrderStatus.DELIVERED &&
+    o.status !== OrderStatus.COMPLETED &&
+    (!selectedDate || o.deliveryDate === selectedDate) // Filter by Date
+  );
+
+  const availableDates = Array.from(new Set(orders
+    .filter(o => o.status !== OrderStatus.DELIVERED && o.status !== OrderStatus.COMPLETED)
+    .map(o => o.deliveryDate)))
+    .sort();
+
+  const getDateLabel = (dateStr: string) => {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+
+    if (d.getTime() === today.getTime()) return 'Today';
+
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    if (d.getTime() === tomorrow.getTime()) return 'Tomorrow';
+
+    return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  };
+
+  const isSelectedDateToday = () => {
+    if (!selectedDate) return false;
+    const d = new Date(selectedDate);
+    const today = new Date();
+    return d.getDate() === today.getDate() &&
+      d.getMonth() === today.getMonth() &&
+      d.getFullYear() === today.getFullYear();
+  };
+
+  const isToday = isSelectedDateToday();
+
   const toggleOrderSelection = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const newSet = new Set(selectedOrderIds);
@@ -39,26 +106,23 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
   };
 
   const selectAllPending = () => {
-    const pending = orders.filter(o => o.status === OrderStatus.PENDING).map(o => o.id);
-    setSelectedOrderIds(new Set(pending));
-  };
+    // Only select pending orders from the CURRENT filtered view
+    const pendingOnDate = activeOrders
+      .filter(o => o.status === OrderStatus.PENDING)
+      .map(o => o.id);
 
-  useEffect(() => {
-    loadData();
-    const unsub = subscribeOrders((allOrders) => {
-      const sorted = allOrders.sort((a, b) => new Date(a.deliveryDate).getTime() - new Date(b.deliveryDate).getTime());
-      setOrders(sorted);
-    });
-    return () => unsub();
-  }, []);
+    // Toggle: if all visible pending are selected, deselect them. Else select all of them.
+    // Note: We check if `selectedOrderIds` contains ALL of `pendingOnDate`
+    const allSelected = pendingOnDate.length > 0 && pendingOnDate.every(id => selectedOrderIds.has(id));
 
-  // Sync editing state
-  useEffect(() => {
-    if (selectedOrder) {
-      setEditedItems(selectedOrder.items);
-      setIsEditingOrder(false);
+    const newSet = new Set(selectedOrderIds);
+    if (allSelected) {
+      pendingOnDate.forEach(id => newSet.delete(id));
+    } else {
+      pendingOnDate.forEach(id => newSet.add(id));
     }
-  }, [selectedOrder]);
+    setSelectedOrderIds(newSet);
+  };
 
   const handleStatusChange = async (order: Order, newStatus: OrderStatus, emptyCansReturned?: number) => {
     const updatedOrder = { ...order, status: newStatus, emptyCansReturned };
@@ -191,18 +255,19 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
     window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`, '_blank');
   };
 
-  // Derived Stats
-  const activeOrders = orders.filter(o => o.status !== OrderStatus.DELIVERED && o.status !== OrderStatus.COMPLETED);
+  // Derived Stats (Global for summary)
   const completedToday = orders.filter(o => o.status === OrderStatus.DELIVERED).length;
   // Calculate cash to collect (Total of active delivered orders or pending ones)
   // Logic: Driver collects cash on Delivery. 
   // Let's show "Pending Collection" for Dispatched orders.
-  const cashToCollect = activeOrders
+  const cashToCollect = orders
+    .filter(o => o.status !== OrderStatus.DELIVERED && o.status !== OrderStatus.COMPLETED)
     .filter(o => o.status === OrderStatus.DISPATCHED)
     .reduce((acc, curr) => acc + curr.totalAmount, 0);
 
   // Validation Logic
   const getValidationData = () => {
+    // Only validate SELECTED orders (which are from current day)
     const selectedOrdersList = orders.filter(o => selectedOrderIds.has(o.id));
     const requirements: Record<string, number> = {};
 
@@ -274,17 +339,38 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
       {!selectedOrder ? (
         <div className="space-y-6 animate-fadeIn">
 
-          {/* Summary Stats */}
+          {/* Date Picker Strip */}
+          <div className="flex overflow-x-auto gap-3 pb-2 -mx-4 px-4 scrollbar-hide no-scrollbar">
+            {availableDates.length === 0 && <div className="text-sm text-slate-400 italic">No upcoming orders</div>}
+            {availableDates.map(date => {
+              const isSelected = date === selectedDate;
+              return (
+                <button
+                  key={date}
+                  onClick={() => setSelectedDate(date)}
+                  className={`flex flex-col items-center justify-center min-w-[80px] p-3 rounded-xl border transition-all ${isSelected
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-xl transform scale-105 ring-2 ring-blue-300'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
+                    }`}
+                >
+                  <span className={`text-[10px] uppercase font-bold tracking-wider ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>{getDateLabel(date)}</span>
+                  <span className="text-xl font-bold">{new Date(date).getDate()}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Summary Stats (Global or Daily? Let's make activeOrders match daily) */}
           <div className="grid grid-cols-3 gap-4">
             <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center">
               <Clock size={20} className="text-blue-500 mb-1" />
               <span className="text-xl font-bold text-slate-800">{activeOrders.length}</span>
-              <span className="text-[10px] text-slate-500 uppercase tracking-wide font-bold">Pending</span>
+              <span className="text-[10px] text-slate-500 uppercase tracking-wide font-bold">Pending Here</span>
             </div>
             <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center">
               <CheckCircle size={20} className="text-green-500 mb-1" />
               <span className="text-xl font-bold text-slate-800">{completedToday}</span>
-              <span className="text-[10px] text-slate-500 uppercase tracking-wide font-bold">Done</span>
+              <span className="text-[10px] text-slate-500 uppercase tracking-wide font-bold">Done Total</span>
             </div>
             <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center">
               <Wallet size={20} className="text-orange-500 mb-1" />
@@ -321,18 +407,23 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
           {/* Active Orders List */}
           <div>
             <div className="flex justify-between items-center mb-3">
-              <h3 className="font-bold text-slate-800 text-lg">Delivery Queue</h3>
+              <h3 className="font-bold text-slate-800 text-lg">Delivery Queue ({selectedDate ? getDateLabel(selectedDate) : 'All'})</h3>
               <div className="flex gap-2">
-                <button onClick={selectAllPending} className="text-xs text-slate-500 font-bold underline">Select All Pending</button>
-                {selectedOrderIds.size > 0 && (
-                  <Button onClick={() => setShowValidation(true)} className="h-8 text-xs bg-blue-600">
-                    Validate Load ({selectedOrderIds.size})
-                  </Button>
+                {isToday && (
+                  <>
+                    <button onClick={selectAllPending} className="text-xs text-slate-500 font-bold underline">Select All Pending</button>
+                    {selectedOrderIds.size > 0 && (
+                      <Button onClick={() => setShowValidation(true)} className="h-8 text-xs bg-blue-600">
+                        Validate Load ({selectedOrderIds.size})
+                      </Button>
+                    )}
+                  </>
                 )}
+                {!isToday && <span className="text-xs text-amber-500 font-bold bg-amber-50 px-2 py-1 rounded">Read Only View</span>}
               </div>
             </div>
             <div className="space-y-3">
-              {activeOrders.length === 0 && <p className="text-slate-400 text-center py-8">No active orders in queue.</p>}
+              {activeOrders.length === 0 && <div className="text-slate-400 text-center py-12 border-2 border-dashed border-slate-200 rounded-xl">No active orders for this date.</div>}
               {activeOrders.map(order => {
                 const isPending = order.status === OrderStatus.PENDING;
                 const isDispatched = order.status === OrderStatus.DISPATCHED;
@@ -350,9 +441,9 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
                     onClick={() => { setSelectedOrder(order); setEmptyCansInput(0); }}
                     className={`bg-white p-4 rounded-xl shadow-sm border ${borderClass} cursor-pointer hover:shadow-md transition active:scale-95 relative overflow-hidden`}
                   >
-                    {isPending && (
+                    {isPending && isToday && (
                       <div className="absolute top-0 right-0 p-3" onClick={(e) => toggleOrderSelection(order.id, e)}>
-                        <div className={`w-5 h-5 rounded border flex items-center justify-center ${isSelected ? 'bg-blue-500 border-blue-500 text-white' : 'border-slate-300 bg-white'}`}>
+                        <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${isSelected ? 'bg-blue-500 border-blue-500 text-white shadow-lg scale-110' : 'border-slate-300 bg-white hover:border-blue-400'}`}>
                           {isSelected && <CheckCircle size={14} />}
                         </div>
                       </div>
@@ -477,12 +568,22 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
             {/* Workflow Actions */}
             <div className="space-y-3 pt-2">
               {selectedOrder.status === OrderStatus.PENDING && (
-                <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100 mb-4">
-                  <p className="text-xs text-yellow-800 mb-3 flex gap-2"><ShieldAlert size={14} /> Ensure you have sufficient stock before confirming.</p>
-                  <Button className="w-full h-12 text-lg shadow-xl shadow-green-100" onClick={() => handleStatusChange(selectedOrder, OrderStatus.CONFIRMED)} icon={CheckCircle}>
-                    Confirm & Load Stock
-                  </Button>
-                </div>
+                <>
+                  {isToday ? (
+                    <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100 mb-4">
+                      <p className="text-xs text-yellow-800 mb-3 flex gap-2"><ShieldAlert size={14} /> Ensure you have sufficient stock before confirming.</p>
+                      <Button className="w-full h-12 text-lg shadow-xl shadow-green-100" onClick={() => handleStatusChange(selectedOrder, OrderStatus.CONFIRMED)} icon={CheckCircle}>
+                        Confirm & Load Stock
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-100 p-4 rounded-xl border border-slate-200 mb-4 text-center">
+                      <Calendar className="mx-auto text-slate-400 mb-2" size={24} />
+                      <p className="text-slate-600 font-bold">Scheduled for {getDateLabel(selectedOrder.deliveryDate)}</p>
+                      <p className="text-xs text-slate-400 mt-1">Actions available on delivery day</p>
+                    </div>
+                  )}
+                </>
               )}
 
               {selectedOrder.status === OrderStatus.CONFIRMED && (
@@ -540,11 +641,11 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-fadeIn">
             <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
-              <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><ShieldAlert className="text-blue-500" /> Validate Load</h3>
+              <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><ShieldAlert className="text-blue-500" /> Validate Load for {selectedOrderIds.size} Orders</h3>
               <button onClick={() => setShowValidation(false)} className="text-slate-400 hover:text-red-500">✕</button>
             </div>
             <div className="p-4 space-y-4">
-              <p className="text-sm text-slate-600">Ensure your vehicle has enough stock for the <strong>{selectedOrderIds.size} selected orders</strong>.</p>
+              <p className="text-sm text-slate-600">Ensure your vehicle has enough stock. <br /><span className="text-xs text-slate-400">Date: {getDateLabel(selectedDate || new Date().toISOString())}</span></p>
 
               <div className="space-y-2 max-h-60 overflow-y-auto">
                 {validationResults.map(r => (
@@ -615,13 +716,6 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
                         pricePerUnit: p.normalPrice, // Default to Normal Price
                         totalPrice: p.normalPrice
                       };
-                      // Add to list, but check if we need to convert to 'Bottle Case' logic if needed? 
-                      // Currently `PRODUCT_CONFIG` has `itemsPerCase`. 
-                      // Our `Order` items usually track 'quantity' as Cases for bottles?
-                      // Let's check `calculateCases`.
-                      // In `PublicOrder`, we used: `calc.cases`.
-                      // Here we simply add 1 unit (Case or Can).
-
                       setEditedItems([...editedItems, newItem]);
                       setShowAddModal(false);
                     }}

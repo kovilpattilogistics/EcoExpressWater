@@ -16,10 +16,26 @@ export const AdminOrders: React.FC = () => {
         return () => unsubscribe();
     }, []);
 
-    const handleDelete = async (orderId: string) => {
-        if (confirm('Are you sure you want to delete this order? This action cannot be undone.')) {
-            await deleteOrder(orderId);
-            // orders update automatically
+    const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+    const [deleteConfirmationId, setDeleteConfirmationId] = useState<string | null>(null);
+
+    const handleDeleteClick = (e: React.MouseEvent, orderId: string) => {
+        e.stopPropagation();
+        setDeleteConfirmationId(orderId);
+    };
+
+    const confirmDelete = async () => {
+        if (!deleteConfirmationId) return;
+
+        try {
+            await deleteOrder(deleteConfirmationId);
+            setDeleteConfirmationId(null);
+            if (selectedOrder?.id === deleteConfirmationId) {
+                setSelectedOrder(null);
+            }
+        } catch (error) {
+            alert("Failed to delete order. Please try again.");
+            console.error(error);
         }
     };
 
@@ -70,7 +86,11 @@ export const AdminOrders: React.FC = () => {
                         No orders found matching your criteria.
                     </div>
                 ) : filteredOrders.map(order => (
-                    <div key={order.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div
+                        key={order.id}
+                        onClick={() => setSelectedOrder(order)}
+                        className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow flex flex-col md:flex-row justify-between items-start md:items-center gap-4 cursor-pointer active:scale-[0.99] duration-200"
+                    >
                         <div className="flex-grow">
                             <div className="flex justify-between md:justify-start items-center gap-3 mb-1">
                                 <span className="font-mono text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">#{order.id.slice(-6)}</span>
@@ -91,8 +111,8 @@ export const AdminOrders: React.FC = () => {
                             <StatusBadge status={order.status} />
 
                             <button
-                                onClick={() => handleDelete(order.id)}
-                                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                onClick={(e) => handleDeleteClick(e, order.id)}
+                                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors z-10"
                                 title="Delete Order"
                             >
                                 <Trash2 size={18} />
@@ -101,6 +121,98 @@ export const AdminOrders: React.FC = () => {
                     </div>
                 ))}
             </div>
+
+            {/* Order Details Modal */}
+            {selectedOrder && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn" onClick={() => setSelectedOrder(null)}>
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                        <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                            <div>
+                                <h3 className="font-bold text-lg text-slate-800">Order Details</h3>
+                                <p className="text-xs text-slate-500">#{selectedOrder.id}</p>
+                            </div>
+                            <button onClick={() => setSelectedOrder(null)} className="text-slate-400 hover:text-slate-600 text-2xl">&times;</button>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto space-y-6">
+
+                            {/* Customer Info */}
+                            <div className="flex items-start gap-4">
+                                <div className="bg-blue-50 p-3 rounded-full text-blue-600">
+                                    <div className="font-bold text-xl">{selectedOrder.customerName.charAt(0)}</div>
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-slate-900 text-lg">{selectedOrder.customerName}</h4>
+                                    <p className="text-sm text-slate-500">{selectedOrder.customerType} Customer</p>
+                                    <div className="mt-2 text-sm text-slate-600 space-y-1">
+                                        <p className="flex items-center gap-2">📍 {selectedOrder.deliveryLocation}</p>
+                                        <p className="flex items-center gap-2">📅 {selectedOrder.deliveryDate} at {selectedOrder.deliveryTime}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <hr className="border-slate-100" />
+
+                            {/* Items List */}
+                            <div>
+                                <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Order Items</h5>
+                                <div className="space-y-3">
+                                    {selectedOrder.items.map((item, idx) => (
+                                        <div key={idx} className="flex justify-between items-center bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                            <div className="font-medium text-slate-700">{item.productType}</div>
+                                            <div className="flex items-center gap-4">
+                                                <span className="text-sm text-slate-500">x{item.quantity}</span>
+                                                <span className="font-bold text-slate-900">₹{item.totalPrice}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="flex justify-between items-center mt-4 pt-4 border-t border-slate-100">
+                                    <span className="font-bold text-slate-600">Total Amount</span>
+                                    <span className="text-xl font-black text-[#4CAF50]">₹{selectedOrder.totalAmount}</span>
+                                </div>
+                            </div>
+
+                            <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100 flex gap-3 text-yellow-800 text-sm">
+                                <AlertTriangle size={20} className="shrink-0" />
+                                <p>Payment is collected upon delivery. Ensure driver confirms payment.</p>
+                            </div>
+
+                        </div>
+
+                        <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+                            <Button variant="secondary" onClick={() => setSelectedOrder(null)}>Close</Button>
+                            <Button
+                                className="bg-red-50 text-red-600 border-red-200 hover:bg-red-100 hover:border-red-300"
+                                onClick={(e) => handleDeleteClick(e, selectedOrder.id)}
+                            >
+                                Delete Order
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Custom Delete Confirmation Modal */}
+            {deleteConfirmationId && (
+                <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn" onClick={() => setDeleteConfirmationId(null)}>
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden p-6" onClick={e => e.stopPropagation()}>
+                        <div className="text-center">
+                            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-100 mb-4">
+                                <Trash2 className="h-8 w-8 text-red-600" />
+                            </div>
+                            <h3 className="text-lg font-bold text-slate-900 mb-2">Delete Order?</h3>
+                            <p className="text-sm text-slate-500 mb-6">
+                                Are you sure you want to delete this order? This action cannot be undone.
+                            </p>
+                            <div className="flex gap-3 justify-center">
+                                <Button variant="secondary" onClick={() => setDeleteConfirmationId(null)} className="flex-1">Cancel</Button>
+                                <Button variant="danger" onClick={confirmDelete} className="flex-1">Yes, Delete</Button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

@@ -316,9 +316,8 @@ const Header: React.FC<{ role?: string, onLogout: () => void, userName?: string,
       <div
         className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 cursor-pointer"
         onClick={() => {
-          // Should logo go to Welcome or Public? Usually Public Home.
-          // Let's set it to /public to avoid going back to splash screen.
-          window.location.href = '/public';
+          // Navigate to Home Page (Welcome Page)
+          window.location.href = '/';
         }}
       >
         <img src="/logo.png" alt="EcoExpress Logistics" className="h-20 w-auto object-contain" />
