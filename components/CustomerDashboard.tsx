@@ -3,7 +3,8 @@ import { Card, Button, Input, Select, StatusBadge } from './SharedComponents';
 import { ProductType, Order, OrderItem, OrderStatus, Customer } from '../types';
 import { PRODUCT_CONFIG } from '../constants';
 import { calculateCases, saveOrder, subscribeOrders, calculateSmartRounding } from '../services/firestoreService';
-import { MapPin, Clock } from 'lucide-react';
+import { MapPin, Clock, ShoppingCart, Navigation } from 'lucide-react';
+import { LocationPickerMap } from './LocationPickerMap';
 
 interface CustomerDashboardProps {
   customer: Customer;
@@ -14,12 +15,40 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
   const [view, setView] = useState<'ORDER' | 'HISTORY'>('ORDER');
   const [orders, setOrders] = useState<Order[]>([]);
 
-  // Order Form State
-  const [productType, setProductType] = useState<ProductType>(ProductType.CAN_20L);
-  const [quantity, setQuantity] = useState(1);
+
+  // Order Form State (Multi-Product)
+  const [quantities, setQuantities] = useState<Record<string, string>>({});
+
+  // Location State
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number, lng: number } | null>(null);
+  const [showMap, setShowMap] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
   const [location, setLocation] = useState(customer.location);
-  const [date, setDate] = useState('');
-  const [time, setTime] = useState('');
+
+  const handleGetCurrentLocation = () => {
+    if (!navigator.geolocation) { alert("Geolocation not supported"); return; }
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition((position) => {
+      const { latitude, longitude } = position.coords;
+      // Set GPS coords but DO NOT overwrite the manual address text
+      setGpsCoords({ lat: latitude, lng: longitude });
+      setIsLocating(false);
+    }, (error) => {
+      console.error("Error", error); alert("Unable to get location"); setIsLocating(false);
+    }, { enableHighAccuracy: true });
+  };
+  const [date, setDate] = useState(() => {
+    const d = new Date();
+    return d.toISOString().split('T')[0];
+  });
+  const [time, setTime] = useState(() => {
+    const d = new Date();
+    d.setHours(d.getHours() + 1);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+  });
+
   const [emptyReturns, setEmptyReturns] = useState(0);
   const [hasEmptyReturns, setHasEmptyReturns] = useState(false);
 
@@ -30,22 +59,41 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
     return () => unsub();
   }, []);
 
-  // Pricing Logic
-  const config = PRODUCT_CONFIG[productType];
-  const pricePerUnit = customer.type === 'RETAIL' ? config.retailPrice : config.normalPrice;
+  const updateQuantity = (type: string, val: string) => {
+    if (val.includes('-')) return;
+    const num = parseInt(val);
+    if (!isNaN(num) && num < 0) return;
+    setQuantities(prev => ({ ...prev, [type]: val }));
+  };
 
-  const calculation = calculateCases(productType, quantity);
-  let totalPrice = 0;
+  const hasItems = Object.values(quantities).some(v => parseInt(v || "0") > 0);
 
-  if (productType.includes('Bottle')) {
-    const totalCasesToCharge = calculation.cases + (calculation.loose > 0 ? 1 : 0);
-    totalPrice = totalCasesToCharge * pricePerUnit;
-  } else {
-    totalPrice = quantity * pricePerUnit;
-  }
+  // Total Price Calculation
+  const calculateTotal = () => {
+    return Object.entries(quantities).reduce((sum, [typeStr, valStr]) => {
+      const qty = parseInt(valStr || "0");
+      if (qty === 0) return sum;
+      const type = typeStr as ProductType;
+      const config = PRODUCT_CONFIG[type];
 
-  // Smart Rounding calculation for display
-  const smartRound = calculateSmartRounding(productType, quantity);
+      const { roundedQty } = calculateSmartRounding(type, qty);
+      // Customer specific pricing
+      const pricePerUnit = customer.type === 'RETAIL' ? config.retailPrice : config.normalPrice;
+
+      const calc = calculateCases(type, roundedQty);
+      let itemTotal = 0;
+
+      if (type.includes('Bottle')) {
+        const casesToCharge = calc.cases + (calc.loose > 0 ? 1 : 0);
+        itemTotal = casesToCharge * pricePerUnit;
+      } else {
+        itemTotal = roundedQty * pricePerUnit;
+      }
+      return sum + itemTotal;
+    }, 0);
+  };
+
+  const totalPrice = calculateTotal();
 
   const handlePlaceOrder = async () => {
     // Validation
@@ -63,6 +111,13 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
     let finalDate = date;
     let finalTime = time;
 
+    // Append GPS to location if present
+    let finalLocation = location;
+    if (gpsCoords) {
+      if (finalLocation) finalLocation += ` (GPS: ${gpsCoords.lat.toFixed(6)}, ${gpsCoords.lng.toFixed(6)})`;
+      else finalLocation = `GPS: ${gpsCoords.lat.toFixed(6)}, ${gpsCoords.lng.toFixed(6)}`;
+    }
+
     // Auto-correction logic
     if (timeDiff < oneHourMs) {
       const newDeliveryTime = new Date(now.getTime() + thirtyMinsMs);
@@ -78,21 +133,45 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
       setTime(finalTime);
     }
 
+    // Build Items Array
+    const orderItems: OrderItem[] = Object.entries(quantities)
+      .filter(([_, val]) => parseInt(val || "0") > 0)
+      .map(([typeStr, valStr]) => {
+        const type = typeStr as ProductType;
+        const rawQty = parseInt(valStr || "0");
+        const config = PRODUCT_CONFIG[type];
+
+        const { roundedQty, isRounded, extra } = calculateSmartRounding(type, rawQty);
+        const calc = calculateCases(type, roundedQty);
+
+        const pricePerUnit = customer.type === 'RETAIL' ? config.retailPrice : config.normalPrice;
+        let itemTotal = 0;
+        if (type.includes('Bottle')) {
+          const casesToCharge = calc.cases + (calc.loose > 0 ? 1 : 0);
+          itemTotal = casesToCharge * pricePerUnit;
+        } else {
+          itemTotal = roundedQty * pricePerUnit;
+        }
+
+        return {
+          productType: type,
+          quantity: roundedQty,
+          calculatedCases: type.includes('Bottle') ? calculateCases(type, roundedQty).cases : undefined,
+          pricePerUnit,
+          totalPrice: itemTotal,
+          originalQuantity: isRounded ? rawQty : undefined
+        };
+      });
+
     const newOrder: Order = {
       id: Date.now().toString(),
       customerId: customer.id,
       customerName: customer.name,
       customerType: customer.type,
-      items: [{
-        productType,
-        quantity: smartRound.roundedQty, // Use rounded
-        calculatedCases: productType.includes('Bottle') ? calculateCases(productType, smartRound.roundedQty).cases : undefined, // Simplify logic
-        pricePerUnit,
-        totalPrice: productType.includes('Bottle') ? calculateCases(productType, smartRound.roundedQty).cases * pricePerUnit : totalPrice
-      }],
-      totalAmount: productType.includes('Bottle') ? calculateCases(productType, smartRound.roundedQty).cases * pricePerUnit : totalPrice,
+      items: orderItems,
+      totalAmount: totalPrice,
       status: OrderStatus.PENDING,
-      deliveryLocation: location,
+      deliveryLocation: finalLocation,
       deliveryDate: finalDate,
       deliveryTime: finalTime,
       createdAt: new Date().toISOString(),
@@ -101,6 +180,9 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
 
     await saveOrder(newOrder);
     alert('Order Placed Successfully!');
+    setQuantities({});
+    setEmptyReturns(0);
+    setHasEmptyReturns(false);
     setView('HISTORY');
   };
 
@@ -115,12 +197,12 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
       </div>
 
       {customer.pendingAmount > 0 && (
-        <div className="bg-orange-50 border border-orange-200 p-4 rounded-xl flex justify-between items-center animate-pulse">
-          <div>
+        <div className="bg-orange-50 border border-orange-200 p-4 rounded-xl flex justify-between items-start gap-4 animate-pulse">
+          <div className="flex-1">
             <p className="text-orange-800 font-bold text-sm">Pending Payment</p>
-            <p className="text-xs text-orange-600">Please pay this amount to the delivery partner.</p>
+            <p className="text-xs text-orange-600 mt-1 leading-relaxed">Pending amount from previous order only, please pay with delivery partner.</p>
           </div>
-          <span className="text-xl font-bold text-orange-700">₹{customer.pendingAmount}</span>
+          <span className="text-xl font-bold text-orange-700 shrink-0 mt-1">₹{customer.pendingAmount}</span>
         </div>
       )}
 
@@ -130,61 +212,118 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
       </div>
 
       {view === 'ORDER' && (
-        <Card title="New Order">
-          <Select
-            label="Product"
-            options={Object.values(ProductType).map(t => ({ value: t, label: t }))}
-            value={productType}
-            onChange={e => setProductType(e.target.value as ProductType)}
-          />
+        <Card title="New Order - Select Products">
+          {/* Product List */}
+          <div className="space-y-4 mb-6">
+            {Object.values(ProductType).map(tKey => {
+              const rawQtyStr = quantities[tKey] || "0";
+              const rawQty = parseInt(rawQtyStr);
+              const isSelected = rawQty > 0;
+              const config = PRODUCT_CONFIG[tKey];
+              const caseSize = config.itemsPerCase;
+              const price = customer.type === 'RETAIL' ? config.retailPrice : config.normalPrice;
 
-          {productType === ProductType.CAN_20L && (
-            <div className="mb-4">
-              <label className="flex items-center space-x-2">
-                <input type="checkbox" checked={hasEmptyReturns} onChange={e => setHasEmptyReturns(e.target.checked)} className="rounded text-blue-600" />
-                <span className="text-sm">I have Empty cans to return</span>
-              </label>
-              {hasEmptyReturns && (
-                <Input
-                  type="number"
-                  placeholder="Count of empty cans"
-                  className="mt-2"
-                  value={emptyReturns}
-                  onChange={e => setEmptyReturns(Number(e.target.value))}
-                />
-              )}
-            </div>
-          )}
+              const { roundedQty, extra } = calculateSmartRounding(tKey, rawQty);
+              const hasRounding = extra > 0;
+              const calc = calculateCases(tKey, roundedQty);
+              const diff = roundedQty - rawQty;
 
-          <div className="mb-4">
-            <Input
-              label={productType.includes('Bottle') ? "Quantity (Number of bottles)" : "Quantity (Cans)"}
-              type="number"
-              value={quantity}
-              onChange={e => setQuantity(Number(e.target.value))}
-            />
-            {productType.includes('Bottle') && (
-              <div className="mt-1 text-xs">
-                <p className="text-blue-600">
-                  Conversion: {calculateCases(productType, smartRound.roundedQty).display}
-                </p>
-                {smartRound.isRounded && (
-                  <p className="text-[#4CAF50] font-bold">
-                    Optimized to {smartRound.roundedQty} bottles (Includes {smartRound.extra} extra).
-                  </p>
-                )}
-              </div>
+              return (
+                <div key={tKey} className={`flex flex-col p-4 rounded-xl border-2 transition-all duration-300 ${isSelected ? 'border-[#4CAF50] bg-green-50 shadow-md' : 'border-slate-100 bg-white'}`}>
+                  <div className="flex items-start justify-between">
+                    {/* Info */}
+                    <div className="flex flex-col flex-1 pr-4">
+                      <div className="font-bold text-slate-800 text-base">{tKey}</div>
+                      <div className="text-[10px] text-slate-500 font-medium my-1">
+                        {caseSize ? `${caseSize} items/case` : 'Standard Unit'}
+                      </div>
+                      <div className="font-bold text-slate-900">₹{price}<span className="text-[10px] font-normal text-slate-500"> {tKey.includes('Bottle') ? '/case' : '/unit'}</span></div>
+                    </div>
+
+                    {/* Input */}
+                    <div className="flex items-center">
+                      <div className={`flex items-center px-2 py-1 rounded-lg border-2 transition-all ${isSelected ? 'bg-white border-green-200' : 'bg-slate-100 border-transparent'}`}>
+                        <ShoppingCart size={16} className={`mr-2 ${isSelected ? 'text-[#4CAF50]' : 'text-slate-400'}`} />
+                        <input
+                          type="number"
+                          min="0"
+                          onKeyDown={(e) => { if (e.key === '-' || e.key === 'e') e.preventDefault(); }}
+                          value={rawQtyStr === "0" ? "" : rawQtyStr}
+                          onChange={e => updateQuantity(tKey, e.target.value)}
+                          placeholder="0"
+                          className={`w-12 h-8 text-center text-xl font-bold outline-none bg-transparent ${isSelected ? 'text-[#4CAF50]' : 'text-slate-400 focus:text-slate-900'}`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Feedback */}
+                  {isSelected && (
+                    <div className={`mt-2 p-2 rounded-lg text-xs transition-all ${hasRounding ? 'bg-[#4CAF50] text-white' : 'bg-white text-green-800 border border-green-100'}`}>
+                      {tKey.includes('Bottle') ? (
+                        <>
+                          <div className="font-bold flex items-center gap-1">
+                            {hasRounding ? '✨ Optimized for Cases' : '✓ Standard Pack'}
+                          </div>
+                          <div className="opacity-95 mt-0.5">
+                            You get <b>{roundedQty}</b> bottles ({calc.display}).
+                            {hasRounding && ` (Includes ${diff} extra)`}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="font-bold">Total: {roundedQty} Cans</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Empty Cans section */}
+          <div className="mb-4 pt-4 border-t border-slate-100">
+            <label className="flex items-center space-x-2 mb-2">
+              <input type="checkbox" checked={hasEmptyReturns} onChange={e => setHasEmptyReturns(e.target.checked)} className="rounded text-green-600 focus:ring-green-500" />
+              <span className="text-sm font-semibold text-slate-700">I have Empty cans to return</span>
+            </label>
+            {hasEmptyReturns && (
+              <Input
+                type="number"
+                placeholder="Count of empty cans"
+                className="mt-2"
+                value={emptyReturns}
+                onChange={e => setEmptyReturns(Number(e.target.value))}
+              />
             )}
           </div>
 
-          <div className="space-y-3">
-            <div className="flex gap-2 items-end">
-              <div className="flex-1">
-                <Input label="Location" value={location} onChange={e => setLocation(e.target.value)} />
+          {/* Delivery Details */}
+          <div className="space-y-3 pt-2">
+            <h4 className="text-xs font-bold text-slate-400 uppercase">Delivery Details</h4>
+            <div className="flex flex-col gap-2">
+              <div className="flex gap-2 mb-1">
+                <button onClick={handleGetCurrentLocation} className="flex-1 bg-green-600 text-white py-2 rounded-lg text-xs font-bold shadow hover:bg-green-700 flex items-center justify-center gap-2">
+                  <Navigation size={14} />
+                  {isLocating ? 'Locating...' : 'Use GPS'}
+                </button>
+                <button onClick={() => setShowMap(true)} className="px-3 bg-white text-slate-600 border border-slate-200 rounded-lg text-xs font-bold hover:bg-slate-50">
+                  Map
+                </button>
               </div>
-              <button className="mb-3 p-2 bg-slate-200 rounded hover:bg-slate-300" title="Pick from Map">
-                <MapPin size={20} />
-              </button>
+
+              {gpsCoords && (
+                <div className="flex items-center gap-2 mb-1 bg-green-50 p-2 rounded border border-green-100">
+                  <MapPin size={12} className="text-green-600" />
+                  <span className="text-[10px] font-bold text-green-700">GPS Location Pinned ✓</span>
+                  <button
+                    onClick={() => setGpsCoords(null)}
+                    className="ml-auto text-[10px] text-red-400 font-bold hover:text-red-600 border-l border-green-200 pl-2">
+                    CLEAR
+                  </button>
+                </div>
+              )}
+
+              <Input label="Address (Optional if GPS used)" value={location} onChange={e => setLocation(e.target.value)} />
             </div>
             <div className="flex gap-2">
               <Input type="date" label="Date" className="flex-1" value={date} onChange={e => setDate(e.target.value)} />
@@ -194,11 +333,12 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
 
           <div className="mt-6 border-t pt-4">
             <div className="flex justify-between items-center mb-4">
-              <span className="font-semibold">Total Amount</span>
-              <span className="text-xl font-bold text-blue-600">₹{totalPrice}</span>
+              <span className="font-semibold text-slate-600">Total Estimate</span>
+              <span className="text-3xl font-bold text-[#4CAF50]">₹{totalPrice}</span>
             </div>
-            <Button className="w-full" onClick={handlePlaceOrder} disabled={!quantity || !location || !date || !time}>
-              Place Your Order
+            <p className="text-[10px] text-slate-400 mb-4 text-right">Payment due on delivery</p>
+            <Button className="w-full h-12 text-lg shadow-lg shadow-green-100 bg-[#4CAF50] hover:bg-[#43a047]" onClick={handlePlaceOrder} disabled={(!hasItems && (!hasEmptyReturns || emptyReturns <= 0)) || !location || !date || !time}>
+              {(!hasItems && hasEmptyReturns && emptyReturns > 0) ? 'Request Pick Up' : 'Place Order'}
             </Button>
           </div>
         </Card>
@@ -219,15 +359,31 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
               </div>
               <div className="bg-slate-50 p-2 rounded text-sm text-slate-600 mb-2">
                 {order.items.map((i, idx) => (
-                  <div key={idx} className="flex justify-between">
+                  <div key={idx} className="flex justify-between border-b border-slate-100 last:border-0 py-1">
                     <span>{i.productType} x {i.quantity}</span>
                     <span>₹{i.totalPrice}</span>
                   </div>
                 ))}
               </div>
-              <div className="flex justify-between items-center font-bold text-slate-800">
-                <span>Total</span>
-                <span className="text-blue-600">₹{order.totalAmount}</span>
+              <div className="border-t border-slate-100 pt-2 space-y-1">
+                <div className="flex justify-between items-center font-bold text-slate-800">
+                  <span>Total</span>
+                  <span className="text-blue-600">₹{order.totalAmount}</span>
+                </div>
+                {(order.status === 'Delivered' || order.status === 'Empty cans picked') && (
+                  <>
+                    <div className="flex justify-between text-xs text-slate-500">
+                      <span>Paid</span>
+                      <span className="font-bold text-green-600">₹{order.amountReceived || 0}</span>
+                    </div>
+                    {(order.totalAmount - (order.amountReceived || 0)) > 0 && (
+                      <div className="flex justify-between text-xs font-bold text-red-500">
+                        <span>Pending</span>
+                        <span>₹{order.totalAmount - (order.amountReceived || 0)}</span>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           ))}
@@ -236,6 +392,28 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
           )}
         </div>
       )}
+      {/* Map Modal */}
+      {
+        showMap && (
+          <div className="fixed inset-0 z-[100] bg-white flex flex-col animate-fadeIn">
+            <div className="flex justify-between items-center p-4 border-b">
+              <h3 className="font-bold text-slate-800">Set Location</h3>
+              <button onClick={() => setShowMap(false)} className="text-slate-400 hover:text-red-500">Close</button>
+            </div>
+            <div className="flex-grow relative">
+              <LocationPickerMap
+                onLocationSelect={(lat, lng) => {
+                  setGpsCoords({ lat, lng });
+                }}
+                initialLat={gpsCoords?.lat || 9.1726} initialLng={gpsCoords?.lng || 77.8808}
+              />
+              <div className="absolute bottom-8 left-4 right-4 bg-green-600 text-white p-4 rounded-xl text-center font-bold shadow-xl shadow-green-200" onClick={() => setShowMap(false)}>
+                Confirm Location
+              </div>
+            </div>
+          </div>
+        )
+      }
     </div>
   );
 };

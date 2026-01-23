@@ -325,13 +325,16 @@ const Header: React.FC<{ role?: string, onLogout: () => void, userName?: string,
 
       {/* Right Side: User Controls & Language Toggle */}
       <div className="flex items-center gap-4">
-        <button
-          onClick={toggleLang}
-          className="flex items-center gap-1 text-sm font-semibold text-slate-600 hover:text-[#4CAF50] border border-slate-200 rounded-full px-3 py-1 transition"
-        >
-          <Globe size={16} />
-          {lang === 'en' ? 'English' : 'தமிழ்'}
-        </button>
+        {/* Only show Language Toggle for Customers or Public pages (simple mode) */}
+        {(simple || role === 'Customer') && (
+          <button
+            onClick={toggleLang}
+            className="flex items-center gap-1 text-sm font-semibold text-slate-600 hover:text-[#4CAF50] border border-slate-200 rounded-full px-3 py-1 transition"
+          >
+            <Globe size={16} />
+            {lang === 'en' ? 'English' : 'தமிழ்'}
+          </button>
+        )}
 
         {!simple && (
           <>

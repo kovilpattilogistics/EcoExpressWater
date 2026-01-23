@@ -186,28 +186,30 @@ export const AdminOrders: React.FC = () => {
                                         </div>
                                     ))}
                                 </div>
-                                <div className="flex justify-between items-center mt-4 pt-4 border-t border-slate-100">
-                                    <span className="font-bold text-slate-600">Total Amount</span>
-                                    <span className="text-xl font-black text-[#4CAF50]">₹{selectedOrder.totalAmount}</span>
+                                <span className="font-bold text-slate-600">Total Amount</span>
+                                <span className="text-xl font-black text-[#4CAF50]">₹{selectedOrder.totalAmount}</span>
+                            </div>
+                            {(selectedOrder.status === 'Delivered' || selectedOrder.status === 'Empty cans picked') && (
+                                <div className="mt-2 space-y-1 text-right text-sm">
+                                    <div className="flex justify-between">
+                                        <span className="text-slate-500">Paid</span>
+                                        <span className="font-bold text-green-600">₹{selectedOrder.amountReceived || 0}</span>
+                                    </div>
+                                    {(selectedOrder.totalAmount - (selectedOrder.amountReceived || 0)) > 0 && (
+                                        <div className="flex justify-between">
+                                            <span className="text-red-500 font-bold">Pending</span>
+                                            <span className="font-bold text-red-600">₹{selectedOrder.totalAmount - (selectedOrder.amountReceived || 0)}</span>
+                                        </div>
+                                    )}
                                 </div>
-                            </div>
-
-                            <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100 flex gap-3 text-yellow-800 text-sm">
-                                <AlertTriangle size={20} className="shrink-0" />
-                                <p>Payment is collected upon delivery. Ensure driver confirms payment.</p>
-                            </div>
-
+                            )}
                         </div>
 
-                        <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
-                            <Button variant="secondary" onClick={() => setSelectedOrder(null)}>Close</Button>
-                            <Button
-                                className="bg-red-50 text-red-600 border-red-200 hover:bg-red-100 hover:border-red-300"
-                                onClick={(e) => handleDeleteClick(e, selectedOrder.id)}
-                            >
-                                Delete Order
-                            </Button>
+                        <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100 flex gap-3 text-yellow-800 text-sm">
+                            <AlertTriangle size={20} className="shrink-0" />
+                            <p>Payment is collected upon delivery. Ensure driver confirms payment.</p>
                         </div>
+
                     </div>
                 </div>
             )}

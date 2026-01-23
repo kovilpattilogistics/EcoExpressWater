@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, StatusBadge } from './SharedComponents';
-import { subscribeOrders, saveOrder, getVehicleInventory, updateVehicleInventory, updateCustomerPendingAmount } from '../services/firestoreService';
-import { Order, OrderStatus, ProductType, CanState, InventoryItem, PaymentMode, PaymentStatus } from '../types';
+import { subscribeOrders, saveOrder, getVehicleInventory, updateVehicleInventory, updateCustomerPendingAmount, getCustomers, saveCustomer } from '../services/firestoreService';
+import { Order, OrderStatus, ProductType, CanState, InventoryItem, PaymentMode, PaymentStatus, Customer } from '../types';
 import { Map, Truck, PackageCheck, CheckCircle, Navigation, Wallet, Package, Clock, ShieldAlert, Edit2, Save, X, Plus, Calendar, Coins, QrCode, ArrowLeft } from 'lucide-react';
 import { DRIVER_CREDENTIALS, PRODUCT_CONFIG } from '../constants';
 import { VehicleStockModal } from './VehicleStockModal';
@@ -23,6 +23,15 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
 
   const [emptyCansInput, setEmptyCansInput] = useState(0);
   const [showAddModal, setShowAddModal] = useState(false);
+
+  // Empty Can Logging State
+  const [showLogEmptyCansModal, setShowLogEmptyCansModal] = useState(false);
+  const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
+  const [filteredCustomers, setFilteredCustomers] = useState<Customer[]>([]);
+  const [selectedCustomerForLog, setSelectedCustomerForLog] = useState<string>('');
+  const [logCanCount, setLogCanCount] = useState(0);
+  const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
+  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
 
   // Payment Workflow State
   const [showPaymentView, setShowPaymentView] = useState(false);
@@ -69,6 +78,23 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
       setAmountCollected(selectedOrder.totalAmount);
     }
   }, [selectedOrder]);
+
+  // Filter customers effect
+  useEffect(() => {
+    // Only show customers who HAVE cans (outstandingCans > 0)
+    const hasCans = allCustomers.filter(c => (c.outstandingCans || 0) > 0);
+
+    if (!customerSearchTerm) {
+      setFilteredCustomers(hasCans);
+    } else {
+      const lower = customerSearchTerm.toLowerCase();
+      setFilteredCustomers(hasCans.filter(c =>
+        c.name.toLowerCase().includes(lower) ||
+        c.phone.includes(lower) ||
+        (c.shopName && c.shopName.toLowerCase().includes(lower))
+      ));
+    }
+  }, [customerSearchTerm, allCustomers]);
 
   // Derived Stats & Filtering
   const activeOrders = orders.filter(o =>
@@ -242,35 +268,60 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
   const saveModifiedOrder = async () => {
     if (!selectedOrder) return;
 
-    // 1. Calculate Differences for Stock
+    // 1. Calculate Differences for Stock (in CASES for Bottles)
     let stockError = null;
     const inventoryUpdates: InventoryItem[] = [];
 
     const newTotalAmount = editedItems.reduce((sum, item) => sum + item.totalPrice, 0);
 
-    for (let i = 0; i < editedItems.length; i++) {
-      const newItem = editedItems[i];
-      const oldItem = selectedOrder.items.find(x => x.productType === newItem.productType);
+    // Merge old and new items to ensure we cover all products
+    const allProductTypes = new Set([
+      ...selectedOrder.items.map(i => i.productType),
+      ...editedItems.map(i => i.productType)
+    ]);
+
+    for (const type of Array.from(allProductTypes)) {
+      const oldItem = selectedOrder.items.find(x => x.productType === type);
+      const newItem = editedItems.find(x => x.productType === type);
 
       const oldQty = oldItem ? oldItem.quantity : 0;
-      const diff = oldQty - newItem.quantity; // positive = returned (add), negative = taken (sub)
+      const newQty = newItem ? newItem.quantity : 0;
 
-      if (diff === 0) continue;
+      if (oldQty === newQty) continue;
 
-      const stockKey = { type: newItem.productType, canState: newItem.productType === ProductType.CAN_20L ? CanState.FILLED : undefined };
+      const isCan = type === ProductType.CAN_20L;
 
-      if (diff < 0) {
+      // Calculate CASES required for stock check
+      let oldCases = oldQty;
+      let newCases = newQty;
+
+      if (!isCan) {
+        const itemsPerCase = PRODUCT_CONFIG[type as ProductType]?.itemsPerCase || 1;
+        oldCases = Math.ceil(oldQty / itemsPerCase);
+        newCases = Math.ceil(newQty / itemsPerCase);
+      }
+
+      const diffCases = oldCases - newCases; // positive = returned to stock (add), negative = taken from stock (sub)
+
+      if (diffCases === 0) continue; // No stock change needed (e.g. 5 bottles -> 6 bottles might still be 1 case)
+
+      const stockKey = { type: type as ProductType, canState: isCan ? CanState.FILLED : undefined };
+
+      if (diffCases < 0) {
         // Need MORE items (Take from Truck)
-        const needed = Math.abs(diff);
+        const needed = Math.abs(diffCases);
         const stock = vehicleStock.find(s => s.type === stockKey.type && s.canState === stockKey.canState);
+
+        // Allow if we have enough stock OR if we are just untracking items (diff > 0)
+        // But here diff < 0 means we need stock.
         if (!stock || stock.quantity < needed) {
-          stockError = `Insufficient stock for ${newItem.productType}. Need ${needed} more.`;
+          stockError = `Insufficient stock for ${type}. Need ${needed} more ${isCan ? 'Cans' : 'Cases'}.`;
           break;
         }
       }
 
-      // Add update (diff works for sign: +2 adds, -2 subtracts)
-      inventoryUpdates.push({ type: stockKey.type, quantity: diff, canState: stockKey.canState });
+      // Add update (diff works for sign: + adds, - subtracts)
+      inventoryUpdates.push({ type: stockKey.type, quantity: diffCases, canState: stockKey.canState });
     }
 
     if (stockError) {
@@ -291,6 +342,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
     };
 
     await saveOrder(updatedOrder);
+
     // Optimistic update
     setOrders(prev => prev.map(o => o.id === updatedOrder.id ? updatedOrder : o));
     setSelectedOrder(updatedOrder);
@@ -347,6 +399,82 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
 
   const validationResults = getValidationData();
   const allSufficient = validationResults.every(r => r.sufficient);
+
+  // --- Empty Can Logging (Manual) ---
+  // --- Empty Can Logging (Manual) ---
+  const handleOpenLogEmptyCans = async () => {
+    setShowLogEmptyCansModal(true);
+    setLogCanCount(0);
+    setSelectedCustomerForLog('');
+    setCustomerSearchTerm('');
+
+    // Fetch customers if not already loaded significantly? Or always refresh?
+    // Better to refresh to get latest users.
+    setIsLoadingCustomers(true);
+    try {
+      const customers = await getCustomers();
+      setAllCustomers(customers);
+      setFilteredCustomers(customers);
+    } catch (e) {
+      console.error("Failed to load customers", e);
+      alert("Failed to load customer list. Please check connection.");
+    } finally {
+      setIsLoadingCustomers(false);
+    }
+  };
+
+  const handleLogEmptyCansSubmit = async () => {
+    if (!selectedCustomerForLog || logCanCount <= 0) {
+      alert("Please select a customer and enter a valid count.");
+      return;
+    }
+
+    const customer = allCustomers.find(c => c.id === selectedCustomerForLog);
+    if (!customer) return;
+
+    // 1. Update Vehicle Inventory
+    const emptyCanItem = {
+      type: ProductType.CAN_20L,
+      quantity: logCanCount,
+      canState: CanState.EMPTY
+    };
+    await updateVehicleInventory(driverId, emptyCanItem, 'INCREMENT');
+
+    // 2. Update Customer Profile (Outstanding Cans)
+    // Reduce outstanding cans (min 0? No, maybe they return more than they owe? Let's allow negative for now or stay at 0?)
+    // Usually outstanding means "they owe us". If they return, outstanding decreases.
+    const newOutstanding = (customer.outstandingCans || 0) - logCanCount;
+    // We can allow negative to imply we owe them? Or just floor at 0?
+    // Let's just do math. If it goes negative, it means they have deposit credit maybe.
+    const updatedCustomer = { ...customer, outstandingCans: newOutstanding };
+    await saveCustomer(updatedCustomer);
+
+    // 3. Create Dummy Completed Order for History
+    const logOrder: Order = {
+      id: `log-${Date.now()}`,
+      customerId: customer.id,
+      customerName: customer.name,
+      customerType: customer.type,
+      items: [], // No products sold
+      totalAmount: 0,
+      status: OrderStatus.COMPLETED,
+      deliveryLocation: customer.location,
+      deliveryDate: new Date().toISOString().split('T')[0],
+      deliveryTime: new Date().toLocaleTimeString(),
+      createdAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      emptyCansReturned: logCanCount,
+      driverId: driverId,
+      paymentStatus: PaymentStatus.PAID, // N/A
+      paymentMode: PaymentMode.CASH, // N/A
+      amountReceived: 0
+    };
+    await saveOrder(logOrder);
+
+    alert(`Successfully logged ${logCanCount} empty cans from ${customer.name}`);
+    setShowLogEmptyCansModal(false);
+    loadData(); // Refresh inventory
+  };
 
   const confirmTrip = async () => {
     const selectedOrdersList = orders.filter(o => selectedOrderIds.has(o.id));
@@ -482,7 +610,9 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
           <h1 className="text-2xl font-bold flex items-center gap-2 text-slate-800"><Truck className="text-[#4CAF50]" /> Delivery Partner</h1>
           <p className="text-slate-500 text-sm">Welcome back, Driver</p>
         </div>
-        {/* Logout removed as per request */}
+        <Button onClick={handleOpenLogEmptyCans} className="bg-blue-600 shadow-md text-sm px-4 py-2">
+          Log Returns
+        </Button>
       </div>
 
       {!selectedOrder ? (
@@ -550,8 +680,12 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
                 ))
               )}
             </div>
-            <Button variant="secondary" onClick={() => setShowStockModal(true)} className="w-full mt-4 text-sm h-10 border-dashed border-2">Manage Stock / Load Truck</Button>
+            <div className="flex gap-2 mt-4">
+              <Button variant="secondary" onClick={() => setShowStockModal(true)} className="w-full text-sm h-10 border-dashed border-2">Load Cans in Vehicle</Button>
+            </div>
           </Card>
+
+
 
           {/* Active Orders List */}
           <div>
@@ -621,7 +755,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
               })}
             </div>
           </div>
-        </div>
+        </div >
       ) : (
         /* Detailed Order View */
         <div className="space-y-6 animate-fadeIn">
@@ -788,116 +922,221 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
       )}
 
       {/* Validation Modal */}
-      {showValidation && (
-        <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-fadeIn">
-            <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
-              <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><ShieldAlert className="text-blue-500" /> Validate Load for {selectedOrderIds.size} Orders</h3>
-              <button onClick={() => setShowValidation(false)} className="text-slate-400 hover:text-red-500">✕</button>
-            </div>
-            <div className="p-4 space-y-4">
-              <p className="text-sm text-slate-600">Ensure your vehicle has enough stock. <br /><span className="text-xs text-slate-400">Date: {getDateLabel(selectedDate || new Date().toISOString())}</span></p>
-
-              <div className="space-y-2 max-h-60 overflow-y-auto">
-                {validationResults.map(r => (
-                  <div key={r.type} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100">
-                    <div>
-                      <p className="font-bold text-sm text-slate-700">{r.type}</p>
-                      <p className="text-xs text-slate-500">Required: <strong>{r.needed} {r.isCase ? 'Cases' : ''}</strong></p>
-                    </div>
-                    <div className="text-right">
-                      <p className={`font-bold ${r.sufficient ? 'text-green-600' : 'text-red-600'}`}>
-                        Have: {r.have} {r.isCase ? 'Cases' : ''}
-                      </p>
-                      {r.sufficient ?
-                        <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Sufficient</span> :
-                        <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Low Stock</span>
-                      }
-                    </div>
-                  </div>
-                ))}
+      {
+        showValidation && (
+          <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-fadeIn">
+              <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
+                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><ShieldAlert className="text-blue-500" /> Validate Load for {selectedOrderIds.size} Orders</h3>
+                <button onClick={() => setShowValidation(false)} className="text-slate-400 hover:text-red-500">✕</button>
               </div>
+              <div className="p-4 space-y-4">
+                <p className="text-sm text-slate-600">Ensure your vehicle has enough stock. <br /><span className="text-xs text-slate-400">Date: {getDateLabel(selectedDate || new Date().toISOString())}</span></p>
 
-              {!allSufficient && (
-                <div className="bg-orange-50 p-3 rounded text-xs text-orange-800 border border-orange-200 flex items-center gap-2">
-                  <ShieldAlert size={16} /> Insufficient stock. Please load more items.
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {validationResults.map(r => (
+                    <div key={r.type} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100">
+                      <div>
+                        <p className="font-bold text-sm text-slate-700">{r.type}</p>
+                        <p className="text-xs text-slate-500">Required: <strong>{r.needed} {r.isCase ? 'Cases' : ''}</strong></p>
+                      </div>
+                      <div className="text-right">
+                        <p className={`font-bold ${r.sufficient ? 'text-green-600' : 'text-red-600'}`}>
+                          Have: {r.have} {r.isCase ? 'Cases' : ''}
+                        </p>
+                        {r.sufficient ?
+                          <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Sufficient</span> :
+                          <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Low Stock</span>
+                        }
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              )}
 
-              <div className="grid grid-cols-2 gap-3 mt-4">
-                <Button variant="secondary" onClick={() => setShowStockModal(true)}>Manage Stock</Button>
-                <Button onClick={confirmTrip} disabled={!allSufficient} className={!allSufficient ? 'opacity-50 cursor-not-allowed bg-slate-400' : 'bg-green-600 hover:bg-green-700 shadow-lg shadow-green-200'}>
-                  Confirm & Start
-                </Button>
+                {!allSufficient && (
+                  <div className="bg-orange-50 p-3 rounded text-xs text-orange-800 border border-orange-200 flex items-center gap-2">
+                    <ShieldAlert size={16} /> Insufficient stock. Please load more items.
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3 mt-4">
+                  <Button variant="secondary" onClick={() => setShowStockModal(true)}>Manage Stock</Button>
+                  <Button onClick={confirmTrip} disabled={!allSufficient} className={!allSufficient ? 'opacity-50 cursor-not-allowed bg-slate-400' : 'bg-green-600 hover:bg-green-700 shadow-lg shadow-green-200'}>
+                    Confirm & Start
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Empty Can Confirmation Modal */}
-      {showEmptyCanConfirmation && (
-        <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-fadeIn">
-            <div className="p-6 text-center">
-              <ShieldAlert size={48} className="mx-auto text-orange-400 mb-4" />
-              <h3 className="font-bold text-lg text-slate-800 mb-2">No Empty Cans Collected?</h3>
-              <p className="text-sm text-slate-500 mb-6">Are you sure there are no empty cans to collect for this customer?</p>
+      {
+        showEmptyCanConfirmation && (
+          <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-fadeIn">
+              <div className="p-6 text-center">
+                <ShieldAlert size={48} className="mx-auto text-orange-400 mb-4" />
+                <h3 className="font-bold text-lg text-slate-800 mb-2">No Empty Cans Collected?</h3>
+                <p className="text-sm text-slate-500 mb-6">Are you sure there are no empty cans to collect for this customer?</p>
 
-              <div className="flex gap-3">
-                <Button variant="secondary" onClick={() => setShowEmptyCanConfirmation(false)} className="flex-1">No, I have cans</Button>
-                <Button onClick={() => { setShowEmptyCanConfirmation(false); setShowPaymentView(true); }} className="flex-1 bg-blue-600">Confirm (0 Cans)</Button>
+                <div className="flex gap-3">
+                  <Button variant="secondary" onClick={() => setShowEmptyCanConfirmation(false)} className="flex-1">No, I have cans</Button>
+                  <Button onClick={() => { setShowEmptyCanConfirmation(false); setShowPaymentView(true); }} className="flex-1 bg-blue-600">Confirm (0 Cans)</Button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Stock Modal */}
-      {showStockModal && (
-        <VehicleStockModal
-          driverId={driverId}
-          onClose={() => setShowStockModal(false)}
-          onUpdate={loadData}
-        />
-      )}
+      {
+        showStockModal && (
+          <VehicleStockModal
+            driverId={driverId}
+            onClose={() => setShowStockModal(false)}
+            onUpdate={loadData}
+          />
+        )
+      }
 
       {/* Add Product Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 z-[110] flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
-            <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
-              <h3 className="font-bold text-lg text-slate-800">Add Product</h3>
-              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-red-500">✕</button>
-            </div>
-            <div className="p-4 grid gap-3">
-              {Object.values(PRODUCT_CONFIG).map((p) => {
-                const isAdded = editedItems.some(i => i.productType === p.type);
-                if (isAdded) return null; // Already in list
+      {
+        showAddModal && (
+          <div className="fixed inset-0 bg-black/50 z-[110] flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
+              <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
+                <h3 className="font-bold text-lg text-slate-800">Add Product</h3>
+                <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-red-500">✕</button>
+              </div>
+              <div className="p-4 grid gap-3">
+                {Object.values(PRODUCT_CONFIG).map((p) => {
+                  const isAdded = editedItems.some(i => i.productType === p.type);
+                  if (isAdded) return null; // Already in list
 
-                return (
+                  return (
+                    <button
+                      key={p.type}
+                      onClick={() => {
+                        const newItem = {
+                          productType: p.type,
+                          quantity: 1,
+                          pricePerUnit: p.normalPrice, // Default to Normal Price
+                          totalPrice: p.normalPrice
+                        };
+                        setEditedItems([...editedItems, newItem]);
+                        setShowAddModal(false);
+                      }}
+                      className="flex justify-between items-center p-3 rounded-lg border border-slate-200 hover:border-[#4CAF50] hover:bg-green-50 transition text-left"
+                    >
+                      <span className="font-medium text-slate-700">{p.type}</span>
+                      <Plus size={18} className="text-[#4CAF50]" />
+                    </button>
+                  );
+                })}
+                {Object.values(PRODUCT_CONFIG).every(p => editedItems.some(i => i.productType === p.type)) && (
+                  <p className="text-center text-slate-400 text-sm py-4">All products already added.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+
+      {/* Log Returns Modal (Optimized) */}
+      {showLogEmptyCansModal && (
+        <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
+              <h3 className="font-bold text-lg text-slate-800">Log Returns</h3>
+              <button onClick={() => setShowLogEmptyCansModal(false)} className="text-slate-400 hover:text-red-500">✕</button>
+            </div>
+
+            <div className="p-4 space-y-4 flex-1 overflow-y-auto">
+              {/* Customer Search & Selection */}
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">Select Customer</label>
+
+                {isLoadingCustomers ? (
+                  <div className="p-4 text-center text-slate-500 text-sm flex items-center justify-center gap-2">
+                    <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                    Loading Customers...
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      placeholder="Search name or phone..."
+                      value={customerSearchTerm}
+                      onChange={(e) => setCustomerSearchTerm(e.target.value)}
+                      className="w-full p-2 text-sm rounded border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+
+                    <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg bg-slate-50">
+                      {filteredCustomers.length === 0 ? (
+                        <p className="p-3 text-xs text-slate-400 text-center">No customers found.</p>
+                      ) : (
+                        filteredCustomers.map(c => (
+                          <div
+                            key={c.id}
+                            onClick={() => setSelectedCustomerForLog(c.id)}
+                            className={`p-2 border-b border-slate-100 last:border-0 cursor-pointer text-sm flex justify-between items-center hover:bg-white transition ${selectedCustomerForLog === c.id ? 'bg-blue-50 border-blue-200' : ''}`}
+                          >
+                            <div>
+                              <p className="font-bold text-slate-700">{c.name}</p>
+                              <p className="text-[10px] text-slate-500">{c.shopName || c.phone} • <span className="text-blue-600 font-bold">{c.outstandingCans} Cans Pending</span></p>
+                            </div>
+                            {selectedCustomerForLog === c.id && <CheckCircle size={14} className="text-blue-600" />}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Count Input */}
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <label className="block text-xs font-bold text-slate-500 mb-2 text-center">Empty Cans Collected</label>
+                <div className="flex items-center justify-center gap-4">
                   <button
-                    key={p.type}
+                    onClick={() => setLogCanCount(Math.max(0, logCanCount - 1))}
+                    className="w-12 h-12 rounded-xl bg-white border border-slate-200 shadow-sm font-bold text-xl hover:bg-slate-100 text-slate-600 active:scale-95 transition"
+                  >-</button>
+                  <span className="text-3xl font-black text-slate-800 w-16 text-center">{logCanCount}</span>
+                  <button
                     onClick={() => {
-                      const newItem = {
-                        productType: p.type,
-                        quantity: 1,
-                        pricePerUnit: p.normalPrice, // Default to Normal Price
-                        totalPrice: p.normalPrice
-                      };
-                      setEditedItems([...editedItems, newItem]);
-                      setShowAddModal(false);
+                      const customer = allCustomers.find(c => c.id === selectedCustomerForLog);
+                      const max = customer?.outstandingCans || 0;
+                      if (logCanCount < max) {
+                        setLogCanCount(logCanCount + 1);
+                      } else {
+                        alert(`Customer only has ${max} cans to return.`);
+                      }
                     }}
-                    className="flex justify-between items-center p-3 rounded-lg border border-slate-200 hover:border-[#4CAF50] hover:bg-green-50 transition text-left"
-                  >
-                    <span className="font-medium text-slate-700">{p.type}</span>
-                    <Plus size={18} className="text-[#4CAF50]" />
-                  </button>
-                );
-              })}
-              {Object.values(PRODUCT_CONFIG).every(p => editedItems.some(i => i.productType === p.type)) && (
-                <p className="text-center text-slate-400 text-sm py-4">All products already added.</p>
-              )}
+                    className={`w-12 h-12 rounded-xl border shadow-lg font-bold text-xl active:scale-95 transition ${logCanCount >= (allCustomers.find(c => c.id === selectedCustomerForLog)?.outstandingCans || 0) ? 'bg-slate-100 border-slate-200 text-slate-300' : 'bg-green-500 border-green-600 shadow-green-200 text-white hover:bg-green-600'}`}
+                  >+</button>
+                </div>
+                {selectedCustomerForLog && (
+                  <p className="text-center text-xs text-slate-400 mt-2">
+                    Max Returnable: {allCustomers.find(c => c.id === selectedCustomerForLog)?.outstandingCans || 0}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 border-t bg-slate-50">
+              <Button
+                onClick={handleLogEmptyCansSubmit}
+                className="w-full py-4 bg-blue-600 hover:bg-blue-700 shadow-xl shadow-blue-100"
+                disabled={!selectedCustomerForLog || logCanCount <= 0}
+                icon={Save}
+              >
+                Confirm Collection ({logCanCount})
+              </Button>
             </div>
           </div>
         </div>
