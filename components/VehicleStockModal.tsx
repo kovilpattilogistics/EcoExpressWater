@@ -239,7 +239,7 @@ export const VehicleStockModal: React.FC<VehicleStockModalProps> = ({ driverId, 
                                     </div>
                                     <div className="flex flex-wrap gap-2">
                                         {recommendedStock.map((rec, i) => {
-                                            const unit = rec.type === ProductType.CAN_20L ? 'Cans' : 'Units'; // Raw units derived from Order
+                                            const unit = rec.type === ProductType.CAN_20L ? 'Cans' : 'Bottles'; // Raw units derived from Order
                                             return (
                                                 <span key={i} className="text-[10px] bg-white border border-blue-200 text-blue-600 px-2 py-0.5 rounded">
                                                     {rec.type}: {rec.quantity} {unit}

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Package, Users, BarChart3, TrendingUp, AlertTriangle, ShoppingCart, ClipboardList } from 'lucide-react';
 import { Card, StatusBadge } from './SharedComponents';
-import { subscribeInventory, subscribeOrders, subscribeCustomers } from '../services/firestoreService';
+import { subscribeInventory, subscribeOrders, subscribeCustomers, calculateCases } from '../services/firestoreService';
 import { InventoryItem, Order, Customer, ProductType, CanState } from '../types';
 import { LOW_STOCK_THRESHOLD_CANS, LOW_STOCK_THRESHOLD_BOTTLES } from '../constants';
 
@@ -134,7 +134,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
               <p className="text-xs text-slate-500">{item.type}</p>
               {item.canState && <p className="text-[10px] uppercase font-bold text-slate-400">{item.canState}</p>}
               <p className={`text-xl font-bold ${item.quantity < 5 ? 'text-red-600' : 'text-slate-800'}`}>
-                {item.quantity} {item.type.includes('Bottle') ? 'Cases' : 'Cans'}
+                {item.type.includes('Bottle') ? calculateCases(item.type, item.quantity).display : `${item.quantity} Cans`}
               </p>
             </div>
           ))}

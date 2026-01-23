@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, History, Edit2, X, Truck } from 'lucide-react';
-import { Card, Button, Input, Select } from './SharedComponents';
+import { Card, Button, Input, Select, Modal, useToast } from './SharedComponents';
 import { InventoryItem, ProductType, CanState, Transaction, Order, PaymentMode } from '../types';
 import { subscribeInventory, updateInventory, addTransaction, subscribeTransactions, setInventoryQuantity, getVehicleInventory, updateVehicleInventory, calculateCases, subscribeOrders, saveOrder } from '../services/firestoreService';
 import { PRODUCT_CONFIG, DRIVER_CREDENTIALS } from '../constants';
@@ -10,6 +10,7 @@ export const AdminInventory: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
+  const toast = useToast();
 
   // Add Stock Form State
   const [selectedProduct, setSelectedProduct] = useState<ProductType>(ProductType.BOTTLE_300ML);
@@ -110,7 +111,7 @@ export const AdminInventory: React.FC = () => {
         else desc = `Adjustment: ${selectedProduct} x ${quantity}`;
       } else {
         // For Bottles, log in Cases
-        desc = `Stock Purchase: ${selectedProduct} x ${quantity} Cases (${quantityInUnits} Units)`;
+        desc = `Stock Purchase: ${selectedProduct} x ${quantity} Cases (${quantityInUnits} Bottles)`;
       }
 
       addTransaction({
@@ -152,7 +153,7 @@ export const AdminInventory: React.FC = () => {
         category: 'STOCK_PURCHASE', // Using existing category for stock history
         amount: 0, // No cash flow for manual override
         date: new Date().toISOString(),
-        description: `Manual Update: ${editingItem.type} set to ${editQuantity} ${editingItem.type.includes('Bottle') ? 'Cases' : 'Units'} (${finalQuantity} Total Units)`
+        description: `Manual Update: ${editingItem.type} set to ${editQuantity} ${editingItem.type.includes('Bottle') ? 'Cases' : 'Cans'} (${finalQuantity} Total ${editingItem.type.includes('Bottle') ? 'Bottles' : 'Cans'})`
       });
 
       setEditingItem(null);
@@ -188,12 +189,12 @@ export const AdminInventory: React.FC = () => {
       // 3. Log Transaction (Optional but good for tracking)
       // Logic: If needed, but maybe just inventory movement is enough.
 
-      alert("Vehicle Unloaded Successfully! Stock moved to Main Inventory.");
+      toast.success("Vehicle Unloaded Successfully! Stock moved to Main Inventory.");
       setShowUnloadModal(false);
       setVehicleStockToUnload([]);
     } catch (e) {
       console.error("Unload failed", e);
-      alert("Failed to unload vehicle.");
+      toast.error("Failed to unload vehicle.");
     } finally {
       setIsUnloading(false);
     }
@@ -238,11 +239,11 @@ export const AdminInventory: React.FC = () => {
         description: `Cash Handover Collected from Driver (${cashOrdersToReconcile.length} Orders)`
       });
 
-      alert(`Successfully reconciled ₹${total}!`);
+      toast.success(`Successfully reconciled ₹${total}!`);
       setShowReconcileModal(false);
     } catch (e) {
       console.error("Reconciliation failed", e);
-      alert("Failed to reconcile cash.");
+      toast.error("Failed to reconcile cash.");
     }
   };
 
@@ -291,7 +292,7 @@ export const AdminInventory: React.FC = () => {
                         return (
                           <div>
                             <span className="block text-slate-800">{display}</span>
-                            <span className="text-[10px] text-slate-400 font-normal">({item.quantity} Units)</span>
+                            <span className="text-[10px] text-slate-400 font-normal">({item.quantity} Bottles)</span>
                           </div>
                         );
                       })()
@@ -339,124 +340,119 @@ export const AdminInventory: React.FC = () => {
       </Card>
 
       {/* Add Stock Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-2xl animate-fadeIn">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold">Add New Stock</h3>
-              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-red-500"><X size={24} /></button>
-            </div>
+      <Modal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        title="Add New Stock"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowAddModal(false)}>Cancel</Button>
+            <Button onClick={handleUpdateStock}>Update Inventory</Button>
+          </>
+        }
+      >
+        <Select
+          label="Product Type"
+          options={Object.values(ProductType).map(t => ({ value: t, label: t }))}
+          value={selectedProduct}
+          onChange={(e) => setSelectedProduct(e.target.value as ProductType)}
+        />
 
-            <Select
-              label="Product Type"
-              options={Object.values(ProductType).map(t => ({ value: t, label: t }))}
-              value={selectedProduct}
-              onChange={(e) => setSelectedProduct(e.target.value as ProductType)}
-            />
+        {selectedProduct === ProductType.CAN_20L && (
+          <Select
+            label="Condition"
+            options={[
+              { value: CanState.NEW, label: 'New Can Purchase (Adds to Empty)' },
+              { value: 'REFILLED', label: 'Refill Service (Adds to Filled)' },
+              { value: CanState.EMPTY, label: 'Empty Return/Adjustment (Adds to Empty)' }
+            ]}
+            value={canState}
+            onChange={(e) => setCanState(e.target.value as CanState)}
+          />
+        )}
 
-            {selectedProduct === ProductType.CAN_20L && (
-              <Select
-                label="Condition"
-                options={[
-                  { value: CanState.NEW, label: 'New Can Purchase (Adds to Empty)' },
-                  { value: 'REFILLED', label: 'Refill Service (Adds to Filled)' },
-                  { value: CanState.EMPTY, label: 'Empty Return/Adjustment (Adds to Empty)' }
-                ]}
-                value={canState}
-                onChange={(e) => setCanState(e.target.value as CanState)}
-              />
-            )}
-
-            <div className="mb-4">
-              <Input
-                type="number"
-                label={selectedProduct.includes('Bottle') ? "Quantity (Cases)" : "Quantity (Cans)"}
-                value={quantity}
-                onChange={(e) => setQuantity(Number(e.target.value))}
-              />
-              {selectedProduct.includes('Bottle') && quantity > 0 && (
-                <p className="text-right text-xs text-blue-600 font-medium mt-1">
-                  {quantity} Cases = {quantity * (PRODUCT_CONFIG[selectedProduct].itemsPerCase || 1)} Bottles
-                </p>
-              )}
-            </div>
-
-            <div className="bg-slate-100 p-3 rounded mb-4">
-              <span className="text-sm text-slate-600">Estimated Cost:</span>
-              <span className="block text-lg font-bold">₹{calculateCost()}</span>
-            </div>
-
-            <div className="flex justify-end gap-3">
-              <Button variant="secondary" onClick={() => setShowAddModal(false)}>Cancel</Button>
-              <Button onClick={handleUpdateStock}>Update Inventory</Button>
-            </div>
-          </div>
+        <div className="mb-4">
+          <Input
+            type="number"
+            label={selectedProduct.includes('Bottle') ? "Quantity (Cases)" : "Quantity (Cans)"}
+            value={quantity}
+            onChange={(e) => setQuantity(Number(e.target.value))}
+          />
+          {selectedProduct.includes('Bottle') && quantity > 0 && (
+            <p className="text-right text-xs text-blue-600 font-medium mt-1">
+              {quantity} Cases = {quantity * (PRODUCT_CONFIG[selectedProduct].itemsPerCase || 1)} Bottles
+            </p>
+          )}
         </div>
-      )}
+
+        <div className="bg-slate-100 p-3 rounded mb-4">
+          <span className="text-sm text-slate-600">Estimated Cost:</span>
+          <span className="block text-lg font-bold">₹{calculateCost()}</span>
+        </div>
+      </Modal>
 
       {/* Unload Vehicle Modal */}
-      {showUnloadModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-2xl animate-fadeIn">
-            <div className="flex justify-between items-center mb-4">
-              <div>
-                <h3 className="text-xl font-bold">Unload Vehicle</h3>
-                <p className="text-sm text-slate-500">Driver: {DRIVER_CREDENTIALS.username}</p>
-              </div>
-              <button onClick={() => setShowUnloadModal(false)} className="text-slate-400 hover:text-red-500"><X size={24} /></button>
-            </div>
-
-            <div className="bg-slate-50 p-4 rounded-lg mb-4 max-h-60 overflow-y-auto">
-              {vehicleStockToUnload.length === 0 ? (
-                <p className="text-center text-slate-500 py-4">Vehicle is empty.</p>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-slate-500 border-b border-slate-200">
-                      <th className="text-left py-2">Item</th>
-                      <th className="text-right py-2">Qty</th>
+      <Modal
+        isOpen={showUnloadModal}
+        onClose={() => setShowUnloadModal(false)}
+        title="Unload Vehicle"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowUnloadModal(false)}>Cancel</Button>
+            <Button onClick={handleConfirmUnload} isLoading={isUnloading} disabled={vehicleStockToUnload.length === 0}>
+              Confirm Unload
+            </Button>
+          </>
+        }
+      >
+        <div className="mb-4">
+          <p className="text-sm text-slate-500 mb-2">Driver: {DRIVER_CREDENTIALS.username}</p>
+          <div className="bg-slate-50 p-4 rounded-lg max-h-60 overflow-y-auto custom-scrollbar">
+            {vehicleStockToUnload.length === 0 ? (
+              <p className="text-center text-slate-500 py-4">Vehicle is empty.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-slate-500 border-b border-slate-200">
+                    <th className="text-left py-2">Item</th>
+                    <th className="text-right py-2">Qty</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vehicleStockToUnload.map((item, idx) => (
+                    <tr key={idx} className="border-b border-slate-100 last:border-0">
+                      <td className="py-2">
+                        <span className="font-medium">{item.type}</span>
+                        {item.canState && <span className="text-xs text-slate-400 ml-1">({item.canState})</span>}
+                      </td>
+                      <td className="text-right py-2 font-bold">{item.quantity}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {vehicleStockToUnload.map((item, idx) => (
-                      <tr key={idx} className="border-b border-slate-100 last:border-0">
-                        <td className="py-2">
-                          <span className="font-medium">{item.type}</span>
-                          {item.canState && <span className="text-xs text-slate-400 ml-1">({item.canState})</span>}
-                        </td>
-                        <td className="text-right py-2 font-bold">{item.quantity}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-
-            <div className="bg-yellow-50 p-3 rounded mb-4 text-xs text-yellow-800 border-l-4 border-yellow-400">
-              Confirming will move all items above to Main Inventory and clear the Vehicle.
-            </div>
-
-            <div className="flex justify-end gap-3">
-              <Button variant="secondary" onClick={() => setShowUnloadModal(false)}>Cancel</Button>
-              <Button onClick={handleConfirmUnload} isLoading={isUnloading} disabled={vehicleStockToUnload.length === 0}>
-                Confirm Unload
-              </Button>
-            </div>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
-      )}
+        <div className="bg-yellow-50 p-3 rounded text-xs text-yellow-800 border-l-4 border-yellow-400">
+          Confirming will move all items above to Main Inventory and clear the Vehicle.
+        </div>
+      </Modal>
 
       {/* Edit/Override Stock Modal */}
-      {editingItem && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-2xl animate-fadeIn">
-            <div className="flex justify-between items-center mb-4">
-              <div>
-                <h3 className="text-xl font-bold">Override Stock</h3>
-                <p className="text-xs text-slate-500">{editingItem.type} {editingItem.canState ? `(${editingItem.canState})` : ''}</p>
-              </div>
-              <button onClick={() => setEditingItem(null)} className="text-slate-400 hover:text-red-500"><X size={24} /></button>
-            </div>
+      <Modal
+        isOpen={!!editingItem}
+        onClose={() => setEditingItem(null)}
+        title="Override Stock"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEditingItem(null)}>Cancel</Button>
+            <Button onClick={handleSaveEdit}>Save Override</Button>
+          </>
+        }
+      >
+        {editingItem && (
+          <>
+            <p className="text-xs text-slate-500 mb-4">{editingItem.type} {editingItem.canState ? `(${editingItem.canState})` : ''}</p>
 
             <div className="bg-orange-50 p-3 rounded border-l-4 border-orange-400 mb-4 text-sm text-orange-800">
               <span className="font-bold">Warning:</span> You are manually overriding the stock count. This will not record a purchase transaction.
@@ -464,72 +460,63 @@ export const AdminInventory: React.FC = () => {
 
             <div className="mb-4">
               <Input
-                label={editingItem.type.includes('Bottle') ? "New Quantity (Cases)" : "New Quantity (Units)"}
+                label={editingItem.type.includes('Bottle') ? "New Quantity (Cases)" : "New Quantity (Cans)"}
                 type="number"
                 value={editQuantity}
                 onChange={e => setEditQuantity(Number(e.target.value))}
               />
               {editingItem.type.includes('Bottle') && editQuantity > 0 && (
                 <p className="text-right text-xs text-orange-600 font-medium mt-1">
-                  {editQuantity} Cases = {editQuantity * (PRODUCT_CONFIG[editingItem.type]?.itemsPerCase || 1)} Bottles (Total Units)
+                  {editQuantity} Cases = {editQuantity * (PRODUCT_CONFIG[editingItem.type]?.itemsPerCase || 1)} Bottles (Total)
                 </p>
               )}
             </div>
-
-            <div className="flex justify-end gap-3 mt-6">
-              <Button variant="secondary" onClick={() => setEditingItem(null)}>Cancel</Button>
-              <Button onClick={handleSaveEdit}>Save Override</Button>
-            </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
       {/* Cash Reconciliation Modal */}
-      {showReconcileModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-2xl animate-fadeIn">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold text-slate-800">Reconcile Cash</h3>
-              <button onClick={() => setShowReconcileModal(false)} className="text-slate-400 hover:text-red-500"><X size={24} /></button>
-            </div>
-
-            <div className="bg-green-50 p-4 rounded-xl border border-green-100 mb-6 text-center">
-              <p className="text-sm font-bold text-green-800 uppercase tracking-wide">Total Cash to Collect</p>
-              <h2 className="text-4xl font-bold text-green-700 my-2">₹{calculateTotalCashToReconcile()}</h2>
-              <p className="text-xs text-green-600">{cashOrdersToReconcile.length} Pending Orders</p>
-            </div>
-
-            <div className="max-h-60 overflow-y-auto mb-6 bg-slate-50 rounded-lg p-2">
-              {cashOrdersToReconcile.length === 0 ? (
-                <p className="text-center text-slate-400 py-4">No pending cash handovers.</p>
-              ) : (
-                <table className="w-full text-xs text-left">
-                  <thead className="text-slate-500 border-b">
-                    <tr>
-                      <th className="p-2">Order ID</th>
-                      <th className="p-2">Customer</th>
-                      <th className="p-2 text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cashOrdersToReconcile.map(o => (
-                      <tr key={o.id} className="border-b last:border-0 border-slate-100">
-                        <td className="p-2 font-mono">{o.id.slice(-6)}</td>
-                        <td className="p-2">{o.customerName}</td>
-                        <td className="p-2 text-right font-bold">₹{o.amountReceived}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-3">
-              <Button variant="secondary" onClick={() => setShowReconcileModal(false)}>Cancel</Button>
-              <Button onClick={handleConfirmReconcile} disabled={cashOrdersToReconcile.length === 0}>Confirm Receipt</Button>
-            </div>
-          </div>
+      <Modal
+        isOpen={showReconcileModal}
+        onClose={() => setShowReconcileModal(false)}
+        title="Reconcile Cash"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowReconcileModal(false)}>Cancel</Button>
+            <Button onClick={handleConfirmReconcile} disabled={cashOrdersToReconcile.length === 0}>Confirm Receipt</Button>
+          </>
+        }
+      >
+        <div className="bg-green-50 p-4 rounded-xl border border-green-100 mb-6 text-center">
+          <p className="text-sm font-bold text-green-800 uppercase tracking-wide">Total Cash to Collect</p>
+          <h2 className="text-4xl font-bold text-green-700 my-2">₹{calculateTotalCashToReconcile()}</h2>
+          <p className="text-xs text-green-600">{cashOrdersToReconcile.length} Pending Orders</p>
         </div>
-      )}
+
+        <div className="max-h-60 overflow-y-auto mb-6 bg-slate-50 rounded-lg p-2 custom-scrollbar">
+          {cashOrdersToReconcile.length === 0 ? (
+            <p className="text-center text-slate-400 py-4">No pending cash handovers.</p>
+          ) : (
+            <table className="w-full text-xs text-left">
+              <thead className="text-slate-500 border-b">
+                <tr>
+                  <th className="p-2">Order ID</th>
+                  <th className="p-2">Customer</th>
+                  <th className="p-2 text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cashOrdersToReconcile.map(o => (
+                  <tr key={o.id} className="border-b last:border-0 border-slate-100">
+                    <td className="p-2 font-mono">{o.id.slice(-6)}</td>
+                    <td className="p-2">{o.customerName}</td>
+                    <td className="p-2 text-right font-bold">₹{o.amountReceived}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 };

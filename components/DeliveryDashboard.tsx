@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Button, StatusBadge } from './SharedComponents';
+import { Card, Button, StatusBadge, Modal, useToast, Input } from './SharedComponents';
 import { subscribeOrders, saveOrder, getVehicleInventory, updateVehicleInventory, updateCustomerPendingAmount, getCustomers, saveCustomer } from '../services/firestoreService';
 import { Order, OrderStatus, ProductType, CanState, InventoryItem, PaymentMode, PaymentStatus, Customer } from '../types';
 import { Map, Truck, PackageCheck, CheckCircle, Navigation, Wallet, Package, Clock, ShieldAlert, Edit2, Save, X, Plus, Calendar, Coins, QrCode, ArrowLeft } from 'lucide-react';
@@ -13,6 +13,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
   const [showStockModal, setShowStockModal] = useState(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [showValidation, setShowValidation] = useState(false);
+  const toast = useToast();
 
   // Date Filtering State
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -173,7 +174,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
       });
 
       if (!sufficient) {
-        alert("Insufficient Vehicle Stock! Load inventory first.");
+        toast.error("Insufficient Vehicle Stock! Load inventory first.");
         return;
       }
 
@@ -319,7 +320,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
     }
 
     if (stockError) {
-      alert(stockError);
+      toast.error(stockError);
       return;
     }
 
@@ -342,7 +343,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
     setSelectedOrder(updatedOrder);
     setIsEditingOrder(false);
     loadData(); // Sync stock
-    alert("Order Modified & Stock Updated");
+    toast.success("Order Modified & Stock Updated");
   };
 
   const openMap = (location: string) => {
@@ -411,7 +412,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
       setFilteredCustomers(customers);
     } catch (e) {
       console.error("Failed to load customers", e);
-      alert("Failed to load customer list. Please check connection.");
+      toast.error("Failed to load customer list. Please check connection.");
     } finally {
       setIsLoadingCustomers(false);
     }
@@ -419,7 +420,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
 
   const handleLogEmptyCansSubmit = async () => {
     if (!selectedCustomerForLog || logCanCount <= 0) {
-      alert("Please select a customer and enter a valid count.");
+      toast.error("Please select a customer and enter a valid count.");
       return;
     }
 
@@ -465,7 +466,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
     };
     await saveOrder(logOrder);
 
-    alert(`Successfully logged ${logCanCount} empty cans from ${customer.name}`);
+    toast.success(`Successfully logged ${logCanCount} empty cans from ${customer.name}`);
     setShowLogEmptyCansModal(false);
     loadData(); // Refresh inventory
   };
@@ -511,7 +512,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
     loadData();
     setShowValidation(false);
     setSelectedOrderIds(new Set());
-    alert("Trip Started! Inventory Reserved.");
+    toast.success("Trip Started! Inventory Reserved.");
   };
 
   // Render Payment View if active
@@ -992,149 +993,144 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
             driverId={driverId}
             onClose={() => setShowStockModal(false)}
             onUpdate={loadData}
+            recommendedStock={validationResults.map(r => ({
+              type: r.type as ProductType,
+              quantity: r.needed,
+              canState: r.type === ProductType.CAN_20L ? CanState.FILLED : undefined
+            }))}
           />
         )
       }
 
       {/* Add Product Modal */}
-      {
-        showAddModal && (
-          <div className="fixed inset-0 bg-black/50 z-[110] flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
-              <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
-                <h3 className="font-bold text-lg text-slate-800">Add Product</h3>
-                <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-red-500">✕</button>
-              </div>
-              <div className="p-4 grid gap-3">
-                {Object.values(PRODUCT_CONFIG).map((p) => {
-                  const isAdded = editedItems.some(i => i.productType === p.type);
-                  if (isAdded) return null; // Already in list
+      {/* Add Product Modal */}
+      <Modal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        title="Add Product"
+      >
+        <div className="p-4 grid gap-3">
+          {Object.values(PRODUCT_CONFIG).map((p) => {
+            const isAdded = editedItems.some(i => i.productType === p.type);
+            if (isAdded) return null; // Already in list
 
-                  return (
-                    <button
-                      key={p.type}
-                      onClick={() => {
-                        const newItem = {
-                          productType: p.type,
-                          quantity: 1,
-                          pricePerUnit: p.normalPrice, // Default to Normal Price
-                          totalPrice: p.normalPrice
-                        };
-                        setEditedItems([...editedItems, newItem]);
-                        setShowAddModal(false);
-                      }}
-                      className="flex justify-between items-center p-3 rounded-lg border border-slate-200 hover:border-[#4CAF50] hover:bg-green-50 transition text-left"
-                    >
-                      <span className="font-medium text-slate-700">{p.type}</span>
-                      <Plus size={18} className="text-[#4CAF50]" />
-                    </button>
-                  );
-                })}
-                {Object.values(PRODUCT_CONFIG).every(p => editedItems.some(i => i.productType === p.type)) && (
-                  <p className="text-center text-slate-400 text-sm py-4">All products already added.</p>
-                )}
-              </div>
-            </div>
-          </div>
-        )
-      }
+            return (
+              <button
+                key={p.type}
+                onClick={() => {
+                  const newItem = {
+                    productType: p.type,
+                    quantity: 1,
+                    pricePerUnit: p.normalPrice, // Default to Normal Price
+                    totalPrice: p.normalPrice
+                  };
+                  setEditedItems([...editedItems, newItem]);
+                  setShowAddModal(false);
+                }}
+                className="flex justify-between items-center p-3 rounded-lg border border-slate-200 hover:border-[#4CAF50] hover:bg-green-50 transition text-left"
+              >
+                <span className="font-medium text-slate-700">{p.type}</span>
+                <Plus size={18} className="text-[#4CAF50]" />
+              </button>
+            );
+          })}
+          {Object.values(PRODUCT_CONFIG).every(p => editedItems.some(i => i.productType === p.type)) && (
+            <p className="text-center text-slate-400 text-sm py-4">All products already added.</p>
+          )}
+        </div>
+      </Modal>
 
 
       {/* Log Returns Modal (Optimized) */}
-      {showLogEmptyCansModal && (
-        <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
-              <h3 className="font-bold text-lg text-slate-800">Log Returns</h3>
-              <button onClick={() => setShowLogEmptyCansModal(false)} className="text-slate-400 hover:text-red-500">✕</button>
-            </div>
+      {/* Log Returns Modal (Optimized) */}
+      <Modal
+        isOpen={showLogEmptyCansModal}
+        onClose={() => setShowLogEmptyCansModal(false)}
+        title="Log Returns"
+        footer={
+          <Button
+            onClick={handleLogEmptyCansSubmit}
+            className="w-full py-4 bg-blue-600 hover:bg-blue-700 shadow-xl shadow-blue-100"
+            disabled={!selectedCustomerForLog || logCanCount <= 0}
+            icon={Save}
+          >
+            Confirm Collection ({logCanCount})
+          </Button>
+        }
+      >
+        <div className="p-4 space-y-4 flex-1 overflow-y-auto">
+          {/* Customer Search & Selection */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 mb-1">Select Customer</label>
 
-            <div className="p-4 space-y-4 flex-1 overflow-y-auto">
-              {/* Customer Search & Selection */}
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">Select Customer</label>
-
-                {isLoadingCustomers ? (
-                  <div className="p-4 text-center text-slate-500 text-sm flex items-center justify-center gap-2">
-                    <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                    Loading Customers...
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <input
-                      type="text"
-                      placeholder="Search name or phone..."
-                      value={customerSearchTerm}
-                      onChange={(e) => setCustomerSearchTerm(e.target.value)}
-                      className="w-full p-2 text-sm rounded border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
-
-                    <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg bg-slate-50">
-                      {filteredCustomers.length === 0 ? (
-                        <p className="p-3 text-xs text-slate-400 text-center">No customers found.</p>
-                      ) : (
-                        filteredCustomers.map(c => (
-                          <div
-                            key={c.id}
-                            onClick={() => setSelectedCustomerForLog(c.id)}
-                            className={`p-2 border-b border-slate-100 last:border-0 cursor-pointer text-sm flex justify-between items-center hover:bg-white transition ${selectedCustomerForLog === c.id ? 'bg-blue-50 border-blue-200' : ''}`}
-                          >
-                            <div>
-                              <p className="font-bold text-slate-700">{c.name}</p>
-                              <p className="text-[10px] text-slate-500">{c.shopName || c.phone} • <span className="text-blue-600 font-bold">{c.outstandingCans} Cans Pending</span></p>
-                            </div>
-                            {selectedCustomerForLog === c.id && <CheckCircle size={14} className="text-blue-600" />}
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )}
+            {isLoadingCustomers ? (
+              <div className="p-4 text-center text-slate-500 text-sm flex items-center justify-center gap-2">
+                <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                Loading Customers...
               </div>
+            ) : (
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  placeholder="Search name or phone..."
+                  value={customerSearchTerm}
+                  onChange={(e) => setCustomerSearchTerm(e.target.value)}
+                  className="w-full p-2 text-sm rounded border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
+                />
 
-              {/* Count Input */}
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                <label className="block text-xs font-bold text-slate-500 mb-2 text-center">Empty Cans Collected</label>
-                <div className="flex items-center justify-center gap-4">
-                  <button
-                    onClick={() => setLogCanCount(Math.max(0, logCanCount - 1))}
-                    className="w-12 h-12 rounded-xl bg-white border border-slate-200 shadow-sm font-bold text-xl hover:bg-slate-100 text-slate-600 active:scale-95 transition"
-                  >-</button>
-                  <span className="text-3xl font-black text-slate-800 w-16 text-center">{logCanCount}</span>
-                  <button
-                    onClick={() => {
-                      const customer = allCustomers.find(c => c.id === selectedCustomerForLog);
-                      const max = customer?.outstandingCans || 0;
-                      if (logCanCount < max) {
-                        setLogCanCount(logCanCount + 1);
-                      } else {
-                        alert(`Customer only has ${max} cans to return.`);
-                      }
-                    }}
-                    className={`w-12 h-12 rounded-xl border shadow-lg font-bold text-xl active:scale-95 transition ${logCanCount >= (allCustomers.find(c => c.id === selectedCustomerForLog)?.outstandingCans || 0) ? 'bg-slate-100 border-slate-200 text-slate-300' : 'bg-green-500 border-green-600 shadow-green-200 text-white hover:bg-green-600'}`}
-                  >+</button>
+                <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg bg-slate-50">
+                  {filteredCustomers.length === 0 ? (
+                    <p className="p-3 text-xs text-slate-400 text-center">No customers found.</p>
+                  ) : (
+                    filteredCustomers.map(c => (
+                      <div
+                        key={c.id}
+                        onClick={() => setSelectedCustomerForLog(c.id)}
+                        className={`p-2 border-b border-slate-100 last:border-0 cursor-pointer text-sm flex justify-between items-center hover:bg-white transition ${selectedCustomerForLog === c.id ? 'bg-blue-50 border-blue-200' : ''}`}
+                      >
+                        <div>
+                          <p className="font-bold text-slate-700">{c.name}</p>
+                          <p className="text-[10px] text-slate-500">{c.shopName || c.phone} • <span className="text-blue-600 font-bold">{c.outstandingCans} Cans Pending</span></p>
+                        </div>
+                        {selectedCustomerForLog === c.id && <CheckCircle size={14} className="text-blue-600" />}
+                      </div>
+                    ))
+                  )}
                 </div>
-                {selectedCustomerForLog && (
-                  <p className="text-center text-xs text-slate-400 mt-2">
-                    Max Returnable: {allCustomers.find(c => c.id === selectedCustomerForLog)?.outstandingCans || 0}
-                  </p>
-                )}
               </div>
-            </div>
+            )}
+          </div>
 
-            <div className="p-4 border-t bg-slate-50">
-              <Button
-                onClick={handleLogEmptyCansSubmit}
-                className="w-full py-4 bg-blue-600 hover:bg-blue-700 shadow-xl shadow-blue-100"
-                disabled={!selectedCustomerForLog || logCanCount <= 0}
-                icon={Save}
-              >
-                Confirm Collection ({logCanCount})
-              </Button>
+          {/* Count Input */}
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+            <label className="block text-xs font-bold text-slate-500 mb-2 text-center">Empty Cans Collected</label>
+            <div className="flex items-center justify-center gap-4">
+              <button
+                onClick={() => setLogCanCount(Math.max(0, logCanCount - 1))}
+                className="w-12 h-12 rounded-xl bg-white border border-slate-200 shadow-sm font-bold text-xl hover:bg-slate-100 text-slate-600 active:scale-95 transition"
+              >-</button>
+              <span className="text-3xl font-black text-slate-800 w-16 text-center">{logCanCount}</span>
+              <button
+                onClick={() => {
+                  const customer = allCustomers.find(c => c.id === selectedCustomerForLog);
+                  const max = customer?.outstandingCans || 0;
+                  if (logCanCount < max) {
+                    setLogCanCount(logCanCount + 1);
+                  } else {
+                    toast.error(`Customer only has ${max} cans to return.`);
+                  }
+                }}
+                className={`w-12 h-12 rounded-xl border shadow-lg font-bold text-xl active:scale-95 transition ${logCanCount >= (allCustomers.find(c => c.id === selectedCustomerForLog)?.outstandingCans || 0) ? 'bg-slate-100 border-slate-200 text-slate-300' : 'bg-green-500 border-green-600 shadow-green-200 text-white hover:bg-green-600'}`}
+              >+</button>
             </div>
+            {selectedCustomerForLog && (
+              <p className="text-center text-xs text-slate-400 mt-2">
+                Max Returnable: {allCustomers.find(c => c.id === selectedCustomerForLog)?.outstandingCans || 0}
+              </p>
+            )}
           </div>
         </div>
-      )}
-    </div>
+      </Modal>
+    </div >
   );
 };

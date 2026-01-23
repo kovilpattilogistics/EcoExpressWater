@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Input, Select, StatusBadge } from './SharedComponents';
+import { Card, Button, Input, Select, StatusBadge, useToast, Modal } from './SharedComponents';
 import { ProductType, Order, OrderItem, OrderStatus, Customer } from '../types';
 import { PRODUCT_CONFIG } from '../constants';
 import { calculateCases, saveOrder, subscribeOrders, calculateSmartRounding } from '../services/firestoreService';
@@ -14,6 +14,7 @@ interface CustomerDashboardProps {
 export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, onLogout }) => {
   const [view, setView] = useState<'ORDER' | 'HISTORY'>('ORDER');
   const [orders, setOrders] = useState<Order[]>([]);
+  const toast = useToast();
 
 
   // Order Form State (Multi-Product)
@@ -26,7 +27,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
   const [location, setLocation] = useState(customer.location);
 
   const handleGetCurrentLocation = () => {
-    if (!navigator.geolocation) { alert("Geolocation not supported"); return; }
+    if (!navigator.geolocation) { toast.error("Geolocation not supported"); return; }
     setIsLocating(true);
     navigator.geolocation.getCurrentPosition((position) => {
       const { latitude, longitude } = position.coords;
@@ -34,7 +35,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
       setGpsCoords({ lat: latitude, lng: longitude });
       setIsLocating(false);
     }, (error) => {
-      console.error("Error", error); alert("Unable to get location"); setIsLocating(false);
+      console.error("Error", error); toast.error("Unable to get location"); setIsLocating(false);
     }, { enableHighAccuracy: true });
   };
   const [date, setDate] = useState(() => {
@@ -111,7 +112,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
   const handlePlaceOrder = async () => {
     // Validation
     if (!date || !time) {
-      alert("Please select a Delivery Date and Time.");
+      toast.error("Please select a Delivery Date and Time.");
       return;
     }
 
@@ -140,7 +141,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
       const min = String(newDeliveryTime.getMinutes()).padStart(2, '0');
       finalTime = `${hh}:${min}`;
 
-      alert(`Delivery time updated to ${finalTime} (minimum 30 mins preparation time).`);
+      toast.success(`Delivery time updated to ${finalTime} (minimum 30 mins preparation time).`);
 
       setDate(finalDate);
       setTime(finalTime);
@@ -192,7 +193,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
     };
 
     await saveOrder(newOrder);
-    alert('Order Placed Successfully!');
+    toast.success('Order Placed Successfully!');
     setQuantities({});
     setEmptyReturns(0);
     setHasEmptyReturns(false);
@@ -414,91 +415,92 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
         </div>
       )}
       {/* Map Modal */}
+      {/* Map Modal */}
+      <Modal
+        isOpen={showMap}
+        onClose={() => setShowMap(false)}
+        title="Set Location"
+        footer={
+          <div className="w-full bg-green-600 text-white p-4 rounded-xl text-center font-bold shadow-xl shadow-green-200 cursor-pointer" onClick={() => setShowMap(false)}>
+            Confirm Location
+          </div>
+        }
+      >
+        <div className="h-[60vh] relative">
+          <LocationPickerMap
+            onLocationSelect={(lat, lng) => {
+              setGpsCoords({ lat, lng });
+            }}
+            initialLat={gpsCoords?.lat || 9.1726} initialLng={gpsCoords?.lng || 77.8808}
+          />
+        </div>
+      </Modal>
+
+
+      {/* Hidden Print Receipt Template */}
       {
-        showMap && (
-          <div className="fixed inset-0 z-[100] bg-white flex flex-col animate-fadeIn">
-            <div className="flex justify-between items-center p-4 border-b">
-              <h3 className="font-bold text-slate-800">Set Location</h3>
-              <button onClick={() => setShowMap(false)} className="text-slate-400 hover:text-red-500">Close</button>
+        printingOrder && (
+          <div className="hidden print:block fixed inset-0 bg-white z-[9999] p-8">
+            <div className="text-center mb-6">
+              <h1 className="text-2xl font-bold text-slate-800 mb-1">EcoExpress Water</h1>
+              <p className="text-xs text-slate-500">Fast & Reliable Water Delivery</p>
             </div>
-            <div className="flex-grow relative">
-              <LocationPickerMap
-                onLocationSelect={(lat, lng) => {
-                  setGpsCoords({ lat, lng });
-                }}
-                initialLat={gpsCoords?.lat || 9.1726} initialLng={gpsCoords?.lng || 77.8808}
-              />
-              <div className="absolute bottom-8 left-4 right-4 bg-green-600 text-white p-4 rounded-xl text-center font-bold shadow-xl shadow-green-200" onClick={() => setShowMap(false)}>
-                Confirm Location
+
+            <div className="border-b-2 border-slate-800 pb-4 mb-4">
+              <h2 className="text-xl font-bold uppercase tracking-wider mb-2">Receipt</h2>
+              <div className="flex justify-between text-sm">
+                <span className="font-bold">Order #{printingOrder.id.slice(-6)}</span>
+                <span>{new Date(printingOrder.createdAt).toLocaleDateString()}</span>
               </div>
+              <div className="text-sm mt-1">
+                <span className="text-slate-600">Customer: {printingOrder.customerName}</span>
+              </div>
+            </div>
+
+            <div className="mb-6">
+              <table className="w-full text-sm text-left">
+                <thead>
+                  <tr className="border-b border-slate-300">
+                    <th className="py-2">Item</th>
+                    <th className="py-2 text-right">Qty</th>
+                    <th className="py-2 text-right">Price</th>
+                    <th className="py-2 text-right">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {printingOrder.items.map((item, idx) => (
+                    <tr key={idx} className="border-b border-slate-100">
+                      <td className="py-2">{item.productType}</td>
+                      <td className="py-2 text-right">{item.quantity}</td>
+                      <td className="py-2 text-right">{item.pricePerUnit}</td>
+                      <td className="py-2 text-right">₹{item.totalPrice}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex justify-end text-sm border-t border-slate-800 pt-3 mb-6">
+              <div className="w-1/2 space-y-1">
+                <div className="flex justify-between">
+                  <span>Subtotal</span>
+                  <span>₹{printingOrder.totalAmount}</span>
+                </div>
+                {/* Tax or Fees if any */}
+                <div className="flex justify-between font-bold text-lg border-t border-slate-300 pt-1 mt-1">
+                  <span>Total</span>
+                  <span>₹{printingOrder.totalAmount}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="text-center text-xs text-slate-500 mt-12">
+              <p>Thank you for your business!</p>
+              <p>Contact: +91 123-456-7890 | help@ecoexpress.com</p>
             </div>
           </div>
         )
       }
-
-
-      {/* Hidden Print Receipt Template */}
-      {printingOrder && (
-        <div className="hidden print:block fixed inset-0 bg-white z-[9999] p-8">
-          <div className="text-center mb-6">
-            <h1 className="text-2xl font-bold text-slate-800 mb-1">EcoExpress Water</h1>
-            <p className="text-xs text-slate-500">Fast & Reliable Water Delivery</p>
-          </div>
-
-          <div className="border-b-2 border-slate-800 pb-4 mb-4">
-            <h2 className="text-xl font-bold uppercase tracking-wider mb-2">Receipt</h2>
-            <div className="flex justify-between text-sm">
-              <span className="font-bold">Order #{printingOrder.id.slice(-6)}</span>
-              <span>{new Date(printingOrder.createdAt).toLocaleDateString()}</span>
-            </div>
-            <div className="text-sm mt-1">
-              <span className="text-slate-600">Customer: {printingOrder.customerName}</span>
-            </div>
-          </div>
-
-          <div className="mb-6">
-            <table className="w-full text-sm text-left">
-              <thead>
-                <tr className="border-b border-slate-300">
-                  <th className="py-2">Item</th>
-                  <th className="py-2 text-right">Qty</th>
-                  <th className="py-2 text-right">Price</th>
-                  <th className="py-2 text-right">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {printingOrder.items.map((item, idx) => (
-                  <tr key={idx} className="border-b border-slate-100">
-                    <td className="py-2">{item.productType}</td>
-                    <td className="py-2 text-right">{item.quantity}</td>
-                    <td className="py-2 text-right">{item.pricePerUnit}</td>
-                    <td className="py-2 text-right">₹{item.totalPrice}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="flex justify-end text-sm border-t border-slate-800 pt-3 mb-6">
-            <div className="w-1/2 space-y-1">
-              <div className="flex justify-between">
-                <span>Subtotal</span>
-                <span>₹{printingOrder.totalAmount}</span>
-              </div>
-              {/* Tax or Fees if any */}
-              <div className="flex justify-between font-bold text-lg border-t border-slate-300 pt-1 mt-1">
-                <span>Total</span>
-                <span>₹{printingOrder.totalAmount}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="text-center text-xs text-slate-500 mt-12">
-            <p>Thank you for your business!</p>
-            <p>Contact: +91 123-456-7890 | help@ecoexpress.com</p>
-          </div>
-        </div>
-      )}
-    </div>
+    </div >
   );
 };

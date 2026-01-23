@@ -1,5 +1,5 @@
-import React from 'react';
-import { LucideIcon } from 'lucide-react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { LucideIcon, X, CheckCircle, AlertCircle, Info } from 'lucide-react';
 
 export const Card: React.FC<{
   children: React.ReactNode,
@@ -92,4 +92,97 @@ export const StatusBadge: React.FC<{ status: string, className?: string }> = ({ 
       {status}
     </span>
   );
+};
+
+// --- New Components ---
+
+// Modal Component
+export const Modal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  title: string;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+  maxWidth?: string;
+}> = ({ isOpen, onClose, title, children, footer, maxWidth = 'max-w-md' }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[9999] animate-fadeIn">
+      <div className={`bg-white rounded-xl shadow-2xl w-full ${maxWidth} flex flex-col max-h-[90vh]`}>
+        {/* Header */}
+        <div className="flex justify-between items-center p-4 border-b border-slate-100">
+          <h3 className="text-lg font-bold text-slate-800">{title}</h3>
+          <button onClick={onClose} className="p-1 rounded-full text-slate-400 hover:bg-slate-100 hover:text-red-500 transition-colors">
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="p-4 overflow-y-auto custom-scrollbar">
+          {children}
+        </div>
+
+        {/* Footer */}
+        {footer && (
+          <div className="p-4 border-t border-slate-100 bg-slate-50 rounded-b-xl flex justify-end gap-3">
+            {footer}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Toast Context & Hook
+type ToastType = 'success' | 'error' | 'info';
+interface ToastMessage {
+  id: string;
+  message: string;
+  type: ToastType;
+}
+
+const ToastContext = createContext<{
+  showToast: (message: string, type: ToastType) => void;
+}>({ showToast: () => { } });
+
+export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const showToast = (message: string, type: ToastType) => {
+    const id = Date.now().toString();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 3000); // Auto dismiss after 3s
+  };
+
+  return (
+    <ToastContext.Provider value={{ showToast }}>
+      {children}
+      {/* Toast Container */}
+      <div className="fixed top-4 right-4 z-[10000] flex flex-col gap-2 pointer-events-none">
+        {toasts.map(t => (
+          <div key={t.id} className={`pointer-events-auto min-w-[300px] p-4 rounded-lg shadow-lg border-l-4 flex items-center gap-3 animate-slideIn bg-white ${t.type === 'success' ? 'border-green-500' :
+              t.type === 'error' ? 'border-red-500' :
+                'border-blue-500'
+            }`}>
+            {t.type === 'success' && <CheckCircle size={20} className="text-green-500" />}
+            {t.type === 'error' && <AlertCircle size={20} className="text-red-500" />}
+            {t.type === 'info' && <Info size={20} className="text-blue-500" />}
+            <p className="text-sm font-medium text-slate-800">{t.message}</p>
+          </div>
+        ))}
+      </div>
+    </ToastContext.Provider>
+  );
+};
+
+export const useToast = () => {
+  const { showToast } = useContext(ToastContext);
+  return {
+    success: (msg: string) => showToast(msg, 'success'),
+    error: (msg: string) => showToast(msg, 'error'),
+    info: (msg: string) => showToast(msg, 'info'),
+  };
 };
