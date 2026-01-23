@@ -3,7 +3,7 @@ import { Card, Button, Input, Select, StatusBadge } from './SharedComponents';
 import { ProductType, Order, OrderItem, OrderStatus, Customer } from '../types';
 import { PRODUCT_CONFIG } from '../constants';
 import { calculateCases, saveOrder, subscribeOrders, calculateSmartRounding } from '../services/firestoreService';
-import { MapPin, Clock, ShoppingCart, Navigation } from 'lucide-react';
+import { MapPin, Clock, ShoppingCart, Navigation, Printer, X } from 'lucide-react';
 import { LocationPickerMap } from './LocationPickerMap';
 
 interface CustomerDashboardProps {
@@ -51,6 +51,19 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
 
   const [emptyReturns, setEmptyReturns] = useState(0);
   const [hasEmptyReturns, setHasEmptyReturns] = useState(false);
+
+  // Receipt Printing State
+  const [printingOrder, setPrintingOrder] = useState<Order | null>(null);
+
+  const handlePrintReceipt = (order: Order) => {
+    setPrintingOrder(order);
+    // Allow state to update then print
+    setTimeout(() => {
+      window.print();
+      // Optional: clear after print? modifying state during print dialog behavior is tricky
+      // better to let user close the modal manually or clear it after a delay
+    }, 100);
+  };
 
   useEffect(() => {
     const unsub = subscribeOrders((allOrders) => {
@@ -187,7 +200,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
   };
 
   return (
-    <div className="max-w-md mx-auto p-4 space-y-6">
+    <div className="max-w-md mx-auto p-4 space-y-6 print:hidden">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-xl font-bold">Welcome, {customer.name}</h1>
@@ -370,6 +383,14 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
                   <span>Total</span>
                   <span className="text-blue-600">₹{order.totalAmount}</span>
                 </div>
+                <div className="flex justify-end pt-2">
+                  <button
+                    onClick={() => handlePrintReceipt(order)}
+                    className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-slate-800 border border-slate-200 px-2 py-1 rounded"
+                  >
+                    <Printer size={12} /> Print Receipt
+                  </button>
+                </div>
                 {(order.status === 'Delivered' || order.status === 'Empty cans picked') && (
                   <>
                     <div className="flex justify-between text-xs text-slate-500">
@@ -414,6 +435,70 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
           </div>
         )
       }
+
+
+      {/* Hidden Print Receipt Template */}
+      {printingOrder && (
+        <div className="hidden print:block fixed inset-0 bg-white z-[9999] p-8">
+          <div className="text-center mb-6">
+            <h1 className="text-2xl font-bold text-slate-800 mb-1">EcoExpress Water</h1>
+            <p className="text-xs text-slate-500">Fast & Reliable Water Delivery</p>
+          </div>
+
+          <div className="border-b-2 border-slate-800 pb-4 mb-4">
+            <h2 className="text-xl font-bold uppercase tracking-wider mb-2">Receipt</h2>
+            <div className="flex justify-between text-sm">
+              <span className="font-bold">Order #{printingOrder.id.slice(-6)}</span>
+              <span>{new Date(printingOrder.createdAt).toLocaleDateString()}</span>
+            </div>
+            <div className="text-sm mt-1">
+              <span className="text-slate-600">Customer: {printingOrder.customerName}</span>
+            </div>
+          </div>
+
+          <div className="mb-6">
+            <table className="w-full text-sm text-left">
+              <thead>
+                <tr className="border-b border-slate-300">
+                  <th className="py-2">Item</th>
+                  <th className="py-2 text-right">Qty</th>
+                  <th className="py-2 text-right">Price</th>
+                  <th className="py-2 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {printingOrder.items.map((item, idx) => (
+                  <tr key={idx} className="border-b border-slate-100">
+                    <td className="py-2">{item.productType}</td>
+                    <td className="py-2 text-right">{item.quantity}</td>
+                    <td className="py-2 text-right">{item.pricePerUnit}</td>
+                    <td className="py-2 text-right">₹{item.totalPrice}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex justify-end text-sm border-t border-slate-800 pt-3 mb-6">
+            <div className="w-1/2 space-y-1">
+              <div className="flex justify-between">
+                <span>Subtotal</span>
+                <span>₹{printingOrder.totalAmount}</span>
+              </div>
+              {/* Tax or Fees if any */}
+              <div className="flex justify-between font-bold text-lg border-t border-slate-300 pt-1 mt-1">
+                <span>Total</span>
+                <span>₹{printingOrder.totalAmount}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="text-center text-xs text-slate-500 mt-12">
+            <p>Thank you for your business!</p>
+            <p>Contact: +91 123-456-7890 | help@ecoexpress.com</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

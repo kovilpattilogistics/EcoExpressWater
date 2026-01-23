@@ -232,7 +232,8 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
       paymentMode: paymentMode,
       amountReceived: amountCollected,
       emptyCansReturned: emptyCansInput,
-      completedAt: new Date().toISOString()
+      completedAt: new Date().toISOString(),
+      cashHandoverStatus: paymentMode === PaymentMode.CASH ? 'PENDING' : undefined
     };
 
     await saveOrder(updatedOrder);
@@ -604,7 +605,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
           <p className="text-slate-500 text-sm">Welcome back, Driver</p>
         </div>
         <Button onClick={handleOpenLogEmptyCans} className="bg-blue-600 shadow-md text-sm px-4 py-2">
-          Log Returns
+          Log Empty Cans
         </Button>
       </div>
 

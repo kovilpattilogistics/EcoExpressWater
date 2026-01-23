@@ -82,6 +82,7 @@ export interface Order {
   paymentMode?: PaymentMode;
   paymentStatus?: PaymentStatus;
   amountReceived?: number;
+  cashHandoverStatus?: 'PENDING' | 'COMPLETED';
 }
 
 export enum PaymentMode {

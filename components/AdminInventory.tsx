@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, History, Edit2, X, Truck } from 'lucide-react';
 import { Card, Button, Input, Select } from './SharedComponents';
-import { subscribeInventory, updateInventory, addTransaction, subscribeTransactions, setInventoryQuantity, getVehicleInventory, updateVehicleInventory } from '../services/firestoreService';
-import { InventoryItem, ProductType, CanState, Transaction } from '../types';
+import { InventoryItem, ProductType, CanState, Transaction, Order, PaymentMode } from '../types';
+import { subscribeInventory, updateInventory, addTransaction, subscribeTransactions, setInventoryQuantity, getVehicleInventory, updateVehicleInventory, calculateCases, subscribeOrders, saveOrder } from '../services/firestoreService';
 import { PRODUCT_CONFIG, DRIVER_CREDENTIALS } from '../constants';
 
 export const AdminInventory: React.FC = () => {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
 
   // Add Stock Form State
@@ -28,9 +29,13 @@ export const AdminInventory: React.FC = () => {
     const unsubTrans = subscribeTransactions((allTrans) => {
       setTransactions(allTrans.filter(t => t.category === 'STOCK_PURCHASE'));
     });
+    const unsubOrders = subscribeOrders((allOrders) => {
+      setOrders(allOrders);
+    });
     return () => {
       unsubInv();
       unsubTrans();
+      unsubOrders();
     };
   }, []);
 
@@ -44,6 +49,12 @@ export const AdminInventory: React.FC = () => {
       return 0;
     }
 
+    // Input quantity is in Cases for bottles, but costPrice is usually per Unit or Case.
+    // Assuming costPrice in constants is Per Case for bottles for simplicity in this context, 
+    // or if it is per unit, we need to know. 
+    // Looking at constants: "BOTTLE_300ML... costPrice: 130". itemsPerCase: 35. 
+    // 130 is definitely Per Case cost (approx 3-4rs per bottle).
+    // So if input `quantity` is Cases, we just multiply by costPrice.
     return quantity * config.costPrice;
   };
 
@@ -51,10 +62,19 @@ export const AdminInventory: React.FC = () => {
     let effectiveState: CanState | undefined = undefined;
     let cost = 0;
 
+    // Determine Quantity in UNITS for Inventory Update
+    let quantityInUnits = quantity;
+    const config = PRODUCT_CONFIG[selectedProduct];
+
+    if (selectedProduct.includes('Bottle')) {
+      const itemsPerCase = config.itemsPerCase || 1;
+      quantityInUnits = quantity * itemsPerCase;
+    }
+
     if (selectedProduct === ProductType.CAN_20L) {
       if (canState === CanState.NEW) {
-        effectiveState = CanState.EMPTY; // Fix: User clarified new cans are purchased as Empty (to be filled)
-        cost = 145 * quantity;
+        effectiveState = CanState.EMPTY;
+        cost = 145 * quantity; // quantity for Cans is Units
       } else if (canState === 'REFILLED' as any) {
         effectiveState = CanState.FILLED;
         cost = 11 * quantity;
@@ -64,20 +84,23 @@ export const AdminInventory: React.FC = () => {
           type: ProductType.CAN_20L,
           quantity: quantity,
           canState: CanState.EMPTY
-        }, false); // isAddition=false -> Subtract
+        }, false);
 
       } else {
         effectiveState = canState;
       }
+    } else {
+      // Bottles: Cost calculation (using Case quantity)
+      cost = quantity * config.costPrice;
     }
 
     const newItem: InventoryItem = {
       type: selectedProduct,
-      quantity: quantity,
+      quantity: quantityInUnits, // Use calculated Units
       canState: effectiveState
     };
 
-    updateInventory(newItem, true); // async
+    updateInventory(newItem, true);
 
     if (cost > 0) {
       let desc = '';
@@ -86,7 +109,8 @@ export const AdminInventory: React.FC = () => {
         else if (canState === 'REFILLED' as any) desc = `Service: Refill 20L Cans x ${quantity}`;
         else desc = `Adjustment: ${selectedProduct} x ${quantity}`;
       } else {
-        desc = `Stock Purchase: ${selectedProduct} x ${quantity}`;
+        // For Bottles, log in Cases
+        desc = `Stock Purchase: ${selectedProduct} x ${quantity} Cases (${quantityInUnits} Units)`;
       }
 
       addTransaction({
@@ -100,7 +124,6 @@ export const AdminInventory: React.FC = () => {
     }
 
     setShowAddModal(false);
-    // loadData(); // subscription updates UI
   };
 
   const handleEditClick = (item: InventoryItem) => {
@@ -110,11 +133,27 @@ export const AdminInventory: React.FC = () => {
 
   const handleSaveEdit = () => {
     if (editingItem) {
-      const updatedItem = { ...editingItem, quantity: editQuantity };
+      let finalQuantity = editQuantity;
+
+      // If it's a bottle, treat input as CASES and convert to UNITS
+      if (editingItem.type.includes('Bottle')) {
+        const config = PRODUCT_CONFIG[editingItem.type];
+        const perCase = config?.itemsPerCase || 1;
+        finalQuantity = editQuantity * perCase;
+      }
+
+      const updatedItem = { ...editingItem, quantity: finalQuantity };
       setInventoryQuantity(updatedItem);
 
-      // Optional: Add a log for manual override?
-      // For now, just silent update as per "Override" request.
+      // Log the manual override
+      addTransaction({
+        id: Date.now().toString(),
+        type: 'EXPENSE', // logging as expense/adjustment 
+        category: 'STOCK_PURCHASE', // Using existing category for stock history
+        amount: 0, // No cash flow for manual override
+        date: new Date().toISOString(),
+        description: `Manual Update: ${editingItem.type} set to ${editQuantity} ${editingItem.type.includes('Bottle') ? 'Cases' : 'Units'} (${finalQuantity} Total Units)`
+      });
 
       setEditingItem(null);
       // loadData();
@@ -160,11 +199,59 @@ export const AdminInventory: React.FC = () => {
     }
   };
 
+  // Cash Reconciliation State
+  const [showReconcileModal, setShowReconcileModal] = useState(false);
+  const [cashOrdersToReconcile, setCashOrdersToReconcile] = useState<Order[]>([]);
+
+  const handleOpenReconcile = () => {
+    // Filter orders: Delivered, Paid via Cash, Pending Handover
+    const pending = orders.filter(o =>
+      (o.status === 'Delivered' || o.status === 'Empty cans picked') && // Check both just in case
+      o.paymentMode === PaymentMode.CASH &&
+      o.cashHandoverStatus === 'PENDING'
+    );
+    setCashOrdersToReconcile(pending);
+    setShowReconcileModal(true);
+  };
+
+  const calculateTotalCashToReconcile = () => {
+    return cashOrdersToReconcile.reduce((sum, o) => sum + (o.amountReceived || 0), 0);
+  };
+
+  const handleConfirmReconcile = async () => {
+    const total = calculateTotalCashToReconcile();
+    if (total === 0 && cashOrdersToReconcile.length === 0) return;
+
+    try {
+      // 1. Update Orders to COMPLETED handover
+      for (const order of cashOrdersToReconcile) {
+        await saveOrder({ ...order, cashHandoverStatus: 'COMPLETED' });
+      }
+
+      // 2. Log Transaction (Income)
+      addTransaction({
+        id: Date.now().toString(),
+        type: 'INCOME',
+        category: 'ORDER_REVENUE',
+        amount: total,
+        date: new Date().toISOString(),
+        description: `Cash Handover Collected from Driver (${cashOrdersToReconcile.length} Orders)`
+      });
+
+      alert(`Successfully reconciled ₹${total}!`);
+      setShowReconcileModal(false);
+    } catch (e) {
+      console.error("Reconciliation failed", e);
+      alert("Failed to reconcile cash.");
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fadeIn pb-20">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold">Inventory Management</h2>
         <div className="flex gap-2">
+          <Button onClick={handleOpenReconcile} className="bg-green-600 hover:bg-green-700 text-white shadow-sm" icon={History}>Reconcile Cash</Button>
           <Button onClick={handleOpenUnload} variant="secondary" icon={Truck}>Unload Vehicle</Button>
           <Button onClick={() => setShowAddModal(true)} icon={Plus}>Add Stock</Button>
         </div>
@@ -197,7 +284,21 @@ export const AdminInventory: React.FC = () => {
                 <tr key={i} className="border-b last:border-0 hover:bg-slate-50 transition-colors">
                   <td className="p-3 font-medium">{item.type}</td>
                   <td className="p-3">{item.canState || '-'}</td>
-                  <td className="p-3 font-bold">{item.quantity}</td>
+                  <td className="p-3 font-bold">
+                    {item.type.includes('Bottle') ? (
+                      (() => {
+                        const { display } = calculateCases(item.type, item.quantity);
+                        return (
+                          <div>
+                            <span className="block text-slate-800">{display}</span>
+                            <span className="text-[10px] text-slate-400 font-normal">({item.quantity} Units)</span>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      item.quantity
+                    )}
+                  </td>
                   <td className="p-3 text-right">
                     <button
                       onClick={() => handleEditClick(item)}
@@ -266,12 +367,19 @@ export const AdminInventory: React.FC = () => {
               />
             )}
 
-            <Input
-              type="number"
-              label={selectedProduct.includes('Bottle') ? "Quantity (Cases)" : "Quantity (Cans)"}
-              value={quantity}
-              onChange={(e) => setQuantity(Number(e.target.value))}
-            />
+            <div className="mb-4">
+              <Input
+                type="number"
+                label={selectedProduct.includes('Bottle') ? "Quantity (Cases)" : "Quantity (Cans)"}
+                value={quantity}
+                onChange={(e) => setQuantity(Number(e.target.value))}
+              />
+              {selectedProduct.includes('Bottle') && quantity > 0 && (
+                <p className="text-right text-xs text-blue-600 font-medium mt-1">
+                  {quantity} Cases = {quantity * (PRODUCT_CONFIG[selectedProduct].itemsPerCase || 1)} Bottles
+                </p>
+              )}
+            </div>
 
             <div className="bg-slate-100 p-3 rounded mb-4">
               <span className="text-sm text-slate-600">Estimated Cost:</span>
@@ -354,16 +462,70 @@ export const AdminInventory: React.FC = () => {
               <span className="font-bold">Warning:</span> You are manually overriding the stock count. This will not record a purchase transaction.
             </div>
 
-            <Input
-              label="New Current Quantity"
-              type="number"
-              value={editQuantity}
-              onChange={e => setEditQuantity(Number(e.target.value))}
-            />
+            <div className="mb-4">
+              <Input
+                label={editingItem.type.includes('Bottle') ? "New Quantity (Cases)" : "New Quantity (Units)"}
+                type="number"
+                value={editQuantity}
+                onChange={e => setEditQuantity(Number(e.target.value))}
+              />
+              {editingItem.type.includes('Bottle') && editQuantity > 0 && (
+                <p className="text-right text-xs text-orange-600 font-medium mt-1">
+                  {editQuantity} Cases = {editQuantity * (PRODUCT_CONFIG[editingItem.type]?.itemsPerCase || 1)} Bottles (Total Units)
+                </p>
+              )}
+            </div>
 
             <div className="flex justify-end gap-3 mt-6">
               <Button variant="secondary" onClick={() => setEditingItem(null)}>Cancel</Button>
               <Button onClick={handleSaveEdit}>Save Override</Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Cash Reconciliation Modal */}
+      {showReconcileModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-2xl animate-fadeIn">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold text-slate-800">Reconcile Cash</h3>
+              <button onClick={() => setShowReconcileModal(false)} className="text-slate-400 hover:text-red-500"><X size={24} /></button>
+            </div>
+
+            <div className="bg-green-50 p-4 rounded-xl border border-green-100 mb-6 text-center">
+              <p className="text-sm font-bold text-green-800 uppercase tracking-wide">Total Cash to Collect</p>
+              <h2 className="text-4xl font-bold text-green-700 my-2">₹{calculateTotalCashToReconcile()}</h2>
+              <p className="text-xs text-green-600">{cashOrdersToReconcile.length} Pending Orders</p>
+            </div>
+
+            <div className="max-h-60 overflow-y-auto mb-6 bg-slate-50 rounded-lg p-2">
+              {cashOrdersToReconcile.length === 0 ? (
+                <p className="text-center text-slate-400 py-4">No pending cash handovers.</p>
+              ) : (
+                <table className="w-full text-xs text-left">
+                  <thead className="text-slate-500 border-b">
+                    <tr>
+                      <th className="p-2">Order ID</th>
+                      <th className="p-2">Customer</th>
+                      <th className="p-2 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cashOrdersToReconcile.map(o => (
+                      <tr key={o.id} className="border-b last:border-0 border-slate-100">
+                        <td className="p-2 font-mono">{o.id.slice(-6)}</td>
+                        <td className="p-2">{o.customerName}</td>
+                        <td className="p-2 text-right font-bold">₹{o.amountReceived}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <Button variant="secondary" onClick={() => setShowReconcileModal(false)}>Cancel</Button>
+              <Button onClick={handleConfirmReconcile} disabled={cashOrdersToReconcile.length === 0}>Confirm Receipt</Button>
             </div>
           </div>
         </div>
