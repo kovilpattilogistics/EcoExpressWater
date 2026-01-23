@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, History, Edit2, X, Truck } from 'lucide-react';
 import { Card, Button, Input, Select } from './SharedComponents';
-import { subscribeInventory, updateInventory, addTransaction, subscribeTransactions, setInventoryQuantity, getVehicleInventory, updateVehicleInventory, clearAllInventoryAndHistory } from '../services/firestoreService';
+import { subscribeInventory, updateInventory, addTransaction, subscribeTransactions, setInventoryQuantity, getVehicleInventory, updateVehicleInventory } from '../services/firestoreService';
 import { InventoryItem, ProductType, CanState, Transaction } from '../types';
 import { PRODUCT_CONFIG, DRIVER_CREDENTIALS } from '../constants';
 
