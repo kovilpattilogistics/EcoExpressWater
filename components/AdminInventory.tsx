@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, History, Edit2, X } from 'lucide-react';
+import { Plus, History, Edit2, X, Truck } from 'lucide-react';
 import { Card, Button, Input, Select } from './SharedComponents';
-import { subscribeInventory, updateInventory, addTransaction, subscribeTransactions, setInventoryQuantity } from '../services/firestoreService';
+import { subscribeInventory, updateInventory, addTransaction, subscribeTransactions, setInventoryQuantity, getVehicleInventory, updateVehicleInventory, clearAllInventoryAndHistory } from '../services/firestoreService';
 import { InventoryItem, ProductType, CanState, Transaction } from '../types';
-import { PRODUCT_CONFIG } from '../constants';
+import { PRODUCT_CONFIG, DRIVER_CREDENTIALS } from '../constants';
 
 export const AdminInventory: React.FC = () => {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -53,11 +53,19 @@ export const AdminInventory: React.FC = () => {
 
     if (selectedProduct === ProductType.CAN_20L) {
       if (canState === CanState.NEW) {
-        effectiveState = CanState.EMPTY;
+        effectiveState = CanState.EMPTY; // Fix: User clarified new cans are purchased as Empty (to be filled)
         cost = 145 * quantity;
       } else if (canState === 'REFILLED' as any) {
         effectiveState = CanState.FILLED;
         cost = 11 * quantity;
+
+        // Auto-decrement Empty Cans as they are being filled
+        updateInventory({
+          type: ProductType.CAN_20L,
+          quantity: quantity,
+          canState: CanState.EMPTY
+        }, false); // isAddition=false -> Subtract
+
       } else {
         effectiveState = canState;
       }
@@ -72,13 +80,22 @@ export const AdminInventory: React.FC = () => {
     updateInventory(newItem, true); // async
 
     if (cost > 0) {
+      let desc = '';
+      if (selectedProduct === ProductType.CAN_20L) {
+        if (canState === CanState.NEW) desc = `Stock Purchase: New 20L Cans x ${quantity}`;
+        else if (canState === 'REFILLED' as any) desc = `Service: Refill 20L Cans x ${quantity}`;
+        else desc = `Adjustment: ${selectedProduct} x ${quantity}`;
+      } else {
+        desc = `Stock Purchase: ${selectedProduct} x ${quantity}`;
+      }
+
       addTransaction({
         id: Date.now().toString(),
         type: 'EXPENSE',
         category: 'STOCK_PURCHASE',
         amount: cost,
         date: new Date().toISOString(),
-        description: `Purchase/Refill: ${selectedProduct} x ${quantity}`
+        description: desc
       });
     }
 
@@ -104,11 +121,64 @@ export const AdminInventory: React.FC = () => {
     }
   };
 
+  // Unload Vehicle State
+  const [showUnloadModal, setShowUnloadModal] = useState(false);
+  const [vehicleStockToUnload, setVehicleStockToUnload] = useState<InventoryItem[]>([]);
+  const [isUnloading, setIsUnloading] = useState(false);
+
+  const handleOpenUnload = async () => {
+    setShowUnloadModal(true);
+    // Fetch driver stock (Hardcoded driver for now)
+    const stock = await getVehicleInventory(DRIVER_CREDENTIALS.username);
+    setVehicleStockToUnload(stock.filter(i => i.quantity > 0));
+  };
+
+  const handleConfirmUnload = async () => {
+    setIsUnloading(true);
+    try {
+      // 1. Add to Main Inventory
+      for (const item of vehicleStockToUnload) {
+        await updateInventory(item, true);
+      }
+
+      // 2. Clear Vehicle Inventory
+      // Create zeroed version of current items to reset them
+      const resetItems = vehicleStockToUnload.map(i => ({ ...i, quantity: 0 }));
+      await updateVehicleInventory(DRIVER_CREDENTIALS.username, resetItems, 'SET');
+
+      // 3. Log Transaction (Optional but good for tracking)
+      // Logic: If needed, but maybe just inventory movement is enough.
+
+      alert("Vehicle Unloaded Successfully! Stock moved to Main Inventory.");
+      setShowUnloadModal(false);
+      setVehicleStockToUnload([]);
+    } catch (e) {
+      console.error("Unload failed", e);
+      alert("Failed to unload vehicle.");
+    } finally {
+      setIsUnloading(false);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fadeIn pb-20">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold">Inventory Management</h2>
-        <Button onClick={() => setShowAddModal(true)} icon={Plus}>Add Stock</Button>
+        <div className="flex gap-2">
+          <Button onClick={handleOpenUnload} variant="secondary" icon={Truck}>Unload Vehicle</Button>
+          <Button onClick={() => setShowAddModal(true)} icon={Plus}>Add Stock</Button>
+        </div>
+      </div>
+
+      {/* Summary Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 dark:bg-blue-900/20 dark:border-blue-800">
+          <h4 className="text-sm font-semibold text-blue-700 dark:text-blue-300">Total 20L Cans</h4>
+          <p className="text-2xl font-bold text-blue-900 dark:text-blue-100">
+            {inventory.filter(i => i.type === ProductType.CAN_20L).reduce((sum, item) => sum + item.quantity, 0)}
+          </p>
+          <p className="text-xs text-blue-600 dark:text-blue-400">Total Assets (Empty + Filled)</p>
+        </div>
       </div>
 
       <Card title="Current Stock">
@@ -187,9 +257,9 @@ export const AdminInventory: React.FC = () => {
               <Select
                 label="Condition"
                 options={[
-                  { value: CanState.NEW, label: 'New Can (Purchase)' },
-                  { value: 'REFILLED', label: 'Refilled (Service)' },
-                  { value: CanState.EMPTY, label: 'Empty Return/Adjustment' }
+                  { value: CanState.NEW, label: 'New Can Purchase (Adds to Empty)' },
+                  { value: 'REFILLED', label: 'Refill Service (Adds to Filled)' },
+                  { value: CanState.EMPTY, label: 'Empty Return/Adjustment (Adds to Empty)' }
                 ]}
                 value={canState}
                 onChange={(e) => setCanState(e.target.value as CanState)}
@@ -211,6 +281,58 @@ export const AdminInventory: React.FC = () => {
             <div className="flex justify-end gap-3">
               <Button variant="secondary" onClick={() => setShowAddModal(false)}>Cancel</Button>
               <Button onClick={handleUpdateStock}>Update Inventory</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unload Vehicle Modal */}
+      {showUnloadModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-2xl animate-fadeIn">
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <h3 className="text-xl font-bold">Unload Vehicle</h3>
+                <p className="text-sm text-slate-500">Driver: {DRIVER_CREDENTIALS.username}</p>
+              </div>
+              <button onClick={() => setShowUnloadModal(false)} className="text-slate-400 hover:text-red-500"><X size={24} /></button>
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-lg mb-4 max-h-60 overflow-y-auto">
+              {vehicleStockToUnload.length === 0 ? (
+                <p className="text-center text-slate-500 py-4">Vehicle is empty.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-slate-500 border-b border-slate-200">
+                      <th className="text-left py-2">Item</th>
+                      <th className="text-right py-2">Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vehicleStockToUnload.map((item, idx) => (
+                      <tr key={idx} className="border-b border-slate-100 last:border-0">
+                        <td className="py-2">
+                          <span className="font-medium">{item.type}</span>
+                          {item.canState && <span className="text-xs text-slate-400 ml-1">({item.canState})</span>}
+                        </td>
+                        <td className="text-right py-2 font-bold">{item.quantity}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div className="bg-yellow-50 p-3 rounded mb-4 text-xs text-yellow-800 border-l-4 border-yellow-400">
+              Confirming will move all items above to Main Inventory and clear the Vehicle.
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <Button variant="secondary" onClick={() => setShowUnloadModal(false)}>Cancel</Button>
+              <Button onClick={handleConfirmUnload} isLoading={isUnloading} disabled={vehicleStockToUnload.length === 0}>
+                Confirm Unload
+              </Button>
             </div>
           </div>
         </div>
