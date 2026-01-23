@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Package, Users, BarChart3, TrendingUp, AlertTriangle, ShoppingCart, ClipboardList } from 'lucide-react';
+import { Package, Users, BarChart3, TrendingUp, AlertTriangle, ShoppingCart, ClipboardList, Truck } from 'lucide-react';
 import { Card, StatusBadge } from './SharedComponents';
 import { subscribeInventory, subscribeOrders, subscribeCustomers, calculateCases } from '../services/firestoreService';
 import { InventoryItem, Order, Customer, ProductType, CanState } from '../types';
@@ -59,6 +59,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
         <Tile title="Inventory" icon={Package} colorClass="bg-orange-500" onClick={() => onNavigate('inventory')} />
         <Tile title="Revenue" icon={BarChart3} colorClass="bg-purple-500" onClick={() => onNavigate('revenue')} />
         <Tile title="Create Order" icon={ShoppingCart} colorClass="bg-teal-500" onClick={() => onNavigate('create-order')} />
+        <Tile title="Live Delivery" icon={Truck} colorClass="bg-blue-600" onClick={() => onNavigate('delivery-status')} />
       </div>
 
       {/* Low Stock Alert */}

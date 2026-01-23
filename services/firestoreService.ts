@@ -322,6 +322,19 @@ export const updateVehicleInventory = async (driverId: string, updates: Inventor
     }
 };
 
+// Subscribe to Vehicle Inventory for Real-time Admin Monitoring
+export const subscribeVehicleInventory = (driverId: string, callback: (items: InventoryItem[]) => void) => {
+    const q = query(collection(db, COLLECTIONS.VEHICLE_INVENTORY), where('driverId', '==', driverId));
+    return onSnapshot(q, (snapshot) => {
+        if (snapshot.empty) {
+            callback([]);
+            return;
+        }
+        const data = snapshot.docs[0].data();
+        callback(data.items || []);
+    });
+};
+
 // --- Transactions ---
 
 export const addTransaction = async (transaction: Transaction) => {

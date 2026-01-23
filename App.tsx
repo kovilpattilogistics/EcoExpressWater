@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AdminDashboard } from './components/AdminDashboard';
 import { AdminInventory } from './components/AdminInventory';
+import { AdminDeliveryStatus } from './components/AdminDeliveryStatus';
 import { AdminRevenue } from './components/AdminRevenue';
 import { AdminOrders } from './components/AdminOrders';
 import { AdminCustomers } from './components/AdminCustomers';
@@ -119,7 +120,8 @@ const App: React.FC = () => {
               hash.includes('customers') ? <AdminCustomers /> :
                 hash.includes('orders') ? <AdminOrders /> :
                   hash.includes('create-order') ? <AdminCreateOrder onBack={() => window.location.hash = ''} /> :
-                    <AdminDashboard onNavigate={(page) => window.location.hash = `#/${page}`} />}
+                    hash.includes('delivery-status') ? <AdminDeliveryStatus onBack={() => window.location.hash = ''} /> :
+                      <AdminDashboard onNavigate={(page) => window.location.hash = `#/${page}`} />}
         </main>
         <Footer t={t} />
       </div>
