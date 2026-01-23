@@ -15,7 +15,7 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
   const [showValidation, setShowValidation] = useState(false);
 
   // Date Filtering State
-  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
   // Modification State
   const [isEditingOrder, setIsEditingOrder] = useState(false);
@@ -53,13 +53,6 @@ export const DeliveryDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout
     const unsub = subscribeOrders((allOrders) => {
       const sorted = allOrders.sort((a, b) => new Date(a.deliveryDate).getTime() - new Date(b.deliveryDate).getTime());
       setOrders(sorted);
-
-      // Auto-select first date if not set
-      if (!selectedDate && sorted.length > 0) {
-        const firstActive = sorted.find(o => o.status !== OrderStatus.DELIVERED && o.status !== OrderStatus.COMPLETED);
-        if (firstActive) setSelectedDate(firstActive.deliveryDate);
-        else if (sorted.length > 0) setSelectedDate(sorted[0].deliveryDate);
-      }
     });
     return () => unsub();
   }, []); // Run once on mount

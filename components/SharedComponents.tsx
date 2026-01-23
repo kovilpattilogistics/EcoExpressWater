@@ -49,16 +49,27 @@ export const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { 
   );
 };
 
-export const Input: React.FC<React.InputHTMLAttributes<HTMLInputElement> & { label?: string, error?: string }> = ({ label, error, className = '', ...props }) => (
-  <div className="mb-4">
-    {label && <label className="block text-sm font-semibold text-slate-700 mb-1">{label}</label>}
-    <input
-      className={`w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-[#4CAF50] focus:border-transparent transition-all ${error ? 'border-red-500' : 'border-slate-300'} ${className}`}
-      {...props}
-    />
-    {error && <p className="text-red-500 text-xs mt-1 font-medium">{error}</p>}
-  </div>
-);
+export const Input: React.FC<React.InputHTMLAttributes<HTMLInputElement> & { label?: string, error?: string }> = ({ label, error, className = '', onChange, ...props }) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (props.type === 'number' && e.target.value) {
+      // Remove leading zeros, but allow "0" itself (e.g., "01" -> "1", "0" -> "0")
+      e.target.value = e.target.value.replace(/^0+(?=\d)/, '');
+    }
+    if (onChange) onChange(e);
+  };
+
+  return (
+    <div className="mb-4">
+      {label && <label className="block text-sm font-semibold text-slate-700 mb-1">{label}</label>}
+      <input
+        className={`w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-[#4CAF50] focus:border-transparent transition-all ${error ? 'border-red-500' : 'border-slate-300'} ${className}`}
+        onChange={handleChange}
+        {...props}
+      />
+      {error && <p className="text-red-500 text-xs mt-1 font-medium">{error}</p>}
+    </div>
+  );
+};
 
 export const Select: React.FC<React.SelectHTMLAttributes<HTMLSelectElement> & { label?: string, options: { value: string, label: string }[] }> = ({ label, options, className = '', ...props }) => (
   <div className="mb-4">

@@ -239,28 +239,29 @@ export const AdminCustomers: React.FC = () => {
             {selectedCustomer && (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden animate-fadeIn">
-                        <div className="p-4 border-b bg-slate-50 flex justify-between items-center shrink-0">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xl">
+                        <div className="p-4 border-b bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
+                            <div className="flex items-center gap-3 w-full sm:w-auto">
+                                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xl shrink-0">
                                     {selectedCustomer.name.charAt(0)}
                                 </div>
-                                <div>
-                                    <h3 className="font-bold text-lg text-slate-800">{selectedCustomer.name}</h3>
+                                <div className="min-w-0">
+                                    <h3 className="font-bold text-lg text-slate-800 break-words line-clamp-1">{selectedCustomer.name}</h3>
                                     <p className="text-xs text-slate-500">{selectedCustomer.phone}</p>
                                 </div>
                             </div>
-                            <div className="flex gap-2">
-                                <Button variant="secondary" onClick={() => setIsEditing(!isEditing)} icon={Edit2} className="h-8 text-xs">
-                                    {isEditing ? 'Cancel Edit' : 'Edit Profile'}
+                            <div className="flex gap-2 w-full sm:w-auto">
+                                <Button variant="secondary" onClick={() => setIsEditing(!isEditing)} icon={Edit2} className="h-8 text-xs flex-1 sm:flex-none justify-center">
+                                    {isEditing ? 'Cancel' : 'Edit'}
                                 </Button>
                                 <Button
                                     onClick={handleDeleteCustomer}
-                                    className="h-8 text-xs bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 hover:text-red-700 shadow-none px-3"
+                                    className="h-8 text-xs bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 hover:text-red-700 shadow-none px-3 flex-1 sm:flex-none justify-center"
                                     icon={Trash2}
                                 >
                                     Delete
                                 </Button>
-                                <button onClick={() => { setSelectedCustomer(null); setIsEditing(false); }} className="ml-2"><X className="text-slate-400 hover:text-red-500" /></button>
+                                <button onClick={() => { setSelectedCustomer(null); setIsEditing(false); }} className="ml-2 sm:block hidden"><X className="text-slate-400 hover:text-red-500" /></button>
+                                <button onClick={() => { setSelectedCustomer(null); setIsEditing(false); }} className="absolute top-4 right-4 sm:hidden"><X className="text-slate-400 hover:text-red-500" /></button>
                             </div>
                         </div>
 
