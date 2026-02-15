@@ -10,7 +10,7 @@ import { DeliveryDashboard } from './components/DeliveryDashboard';
 import { CustomerDashboard } from './components/CustomerDashboard';
 import { PublicOrder } from './components/PublicOrder';
 import { PublicLanding } from './components/PublicLanding';
-import { WelcomePage } from './components/WelcomePage';
+
 import { Input, Button } from './components/SharedComponents';
 import { ADMIN_CREDENTIALS, DRIVER_CREDENTIALS, BASE_PATH } from './constants';
 import { getCustomers } from './services/firestoreService';
@@ -160,16 +160,10 @@ const App: React.FC = () => {
 
   // New: Welcome Page at Root (/) if no specific hash
   // Only show if strictly at root and not quick-order
-  // Only show if strictly at root (or base path root) and not quick-order
-  if ((pathname === '/' || pathname === '') && !hash) {
-    return (
-      <WelcomePage onEnter={() => {
-        // Navigate to /public
-        window.history.pushState({}, '', `${BASE_PATH}/public`);
-        // Trigger state update
-        setPathname('/public');
-      }} />
-    );
+  // Redirect /public to / and handle root path
+  if (pathname === '/public') {
+    window.location.replace(BASE_PATH || '/');
+    return null;
   }
 
   // Quick Order route check
@@ -217,7 +211,7 @@ const App: React.FC = () => {
 
       <div className="flex-grow flex items-center justify-center p-4">
         {targetRole === UserRole.CUSTOMER && !hash.includes('login') ? (
-          // Public Landing View (Moved from inline)
+          // Public Landing View (Default Home)
           <PublicLanding t={t} />
         ) : (
           // Standard Login Card (Admin / Partner / Customer Login Mode)
@@ -278,7 +272,6 @@ const App: React.FC = () => {
                     onClick={() => {
                       // Go back to landing (clear hash)
                       window.location.hash = '';
-                      // If we are at /public, header is fine.
                     }}
                     className="text-sm text-slate-500 hover:text-[#4CAF50]"
                   >
@@ -323,8 +316,12 @@ const Header: React.FC<{ role?: string, onLogout: () => void, userName?: string,
       <div
         className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 cursor-pointer"
         onClick={() => {
-          // Navigate to Home Page (Welcome Page)
-          window.location.href = BASE_PATH || '/';
+          // Navigate to Home Page
+          if (window.location.pathname !== BASE_PATH && window.location.pathname !== '/') {
+            window.location.href = BASE_PATH || '/';
+          } else {
+            window.location.hash = '';
+          }
         }}
       >
         <img src="/logo.png" alt="EcoExpress Logistics" className="h-20 w-auto object-contain" />
