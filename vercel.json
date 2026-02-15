@@ -1,5 +1,12 @@
-{
   "rewrites": [
+    {
+      "source": "/water-delivery/assets/(.*)",
+      "destination": "/assets/$1"
+    },
+    {
+      "source": "/water-delivery/(.*)",
+      "destination": "/index.html"
+    },
     {
       "source": "/(.*)",
       "destination": "/index.html"

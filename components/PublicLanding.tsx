@@ -1,6 +1,7 @@
 import React from 'react';
 import { Truck, Users, ShieldCheck, Zap, Recycle, Smartphone, Clock, Star, LogIn } from 'lucide-react';
 import { Button } from './SharedComponents';
+import { BASE_PATH } from '../constants';
 
 interface PublicLandingProps {
     t: any;
@@ -12,7 +13,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ t }) => {
 
             {/* Background Water Image - Fixed Position (Handled by Parent/Layout usually, but kept here for fidelity) */}
             <div className="fixed inset-0 z-0 opacity-30 pointer-events-none">
-                <img src="/water-bg.png" alt="" className="w-full h-full object-cover" />
+                <img src={`${BASE_PATH}/water-bg.png`} alt="" className="w-full h-full object-cover" />
             </div>
 
             {/* Main Content */}
@@ -33,7 +34,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ t }) => {
                 {/* 2. Unified Hero */}
                 <div className="text-center px-4 mb-8">
                     <div className="mb-6 relative w-32 h-32 bg-white rounded-full p-6 shadow-2xl shadow-slate-100 flex items-center justify-center mx-auto border-[6px] border-slate-50">
-                        <img src="/logo.png" alt="EcoExpress" className="w-full h-auto object-contain" />
+                        <img src={`${BASE_PATH}/logo.png`} alt="EcoExpress" className="w-full h-auto object-contain" />
                     </div>
 
                     <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-2 tracking-tight drop-shadow-sm">

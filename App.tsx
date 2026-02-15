@@ -324,7 +324,7 @@ const Header: React.FC<{ role?: string, onLogout: () => void, userName?: string,
           }
         }}
       >
-        <img src="/logo.png" alt="EcoExpress Logistics" className="h-20 w-auto object-contain" />
+        <img src={`${BASE_PATH}/logo.png`} alt="EcoExpress Logistics" className="h-20 w-auto object-contain" />
       </div>
 
       {/* Right Side: User Controls & Language Toggle */}
