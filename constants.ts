@@ -52,3 +52,5 @@ export const DRIVER_CREDENTIALS = {
 
 export const LOW_STOCK_THRESHOLD_CANS = 35;
 export const LOW_STOCK_THRESHOLD_BOTTLES = 5; // Cases
+
+export const BASE_PATH = '/water-delivery';

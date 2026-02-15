@@ -12,7 +12,7 @@ import { PublicOrder } from './components/PublicOrder';
 import { PublicLanding } from './components/PublicLanding';
 import { WelcomePage } from './components/WelcomePage';
 import { Input, Button } from './components/SharedComponents';
-import { ADMIN_CREDENTIALS, DRIVER_CREDENTIALS } from './constants';
+import { ADMIN_CREDENTIALS, DRIVER_CREDENTIALS, BASE_PATH } from './constants';
 import { getCustomers } from './services/firestoreService';
 import { UserRole, Customer } from './types';
 import { Truck, Users, ShieldCheck, MapPin, Phone, LogIn, Globe } from 'lucide-react';
@@ -20,7 +20,10 @@ import { TRANSLATIONS, Language } from './constants/translations';
 
 const App: React.FC = () => {
   // Use pathname for top-level routing (Admin vs Customer vs Driver)
-  const [pathname, setPathname] = useState(window.location.pathname.toLowerCase());
+  const [pathname, setPathname] = useState(() => {
+    const path = window.location.pathname.toLowerCase();
+    return path.startsWith(BASE_PATH) ? path.substring(BASE_PATH.length) : path;
+  });
   // Use hash for internal routing within Admin dashboard (Dashboard vs Inventory)
   const [hash, setHash] = useState(window.location.hash);
 
@@ -39,7 +42,8 @@ const App: React.FC = () => {
   useEffect(() => {
     // Handler for SPA navigation
     const handlePopState = () => {
-      setPathname(window.location.pathname.toLowerCase());
+      const path = window.location.pathname.toLowerCase();
+      setPathname(path.startsWith(BASE_PATH) ? path.substring(BASE_PATH.length) : path);
       setHash(window.location.hash);
     };
 
@@ -156,11 +160,12 @@ const App: React.FC = () => {
 
   // New: Welcome Page at Root (/) if no specific hash
   // Only show if strictly at root and not quick-order
-  if (pathname === '/' && !hash) {
+  // Only show if strictly at root (or base path root) and not quick-order
+  if ((pathname === '/' || pathname === '') && !hash) {
     return (
       <WelcomePage onEnter={() => {
         // Navigate to /public
-        window.history.pushState({}, '', '/public');
+        window.history.pushState({}, '', `${BASE_PATH}/public`);
         // Trigger state update
         setPathname('/public');
       }} />
@@ -285,11 +290,11 @@ const App: React.FC = () => {
 
             {/* Quick Role Switcher for Demo/Nav */}
             <div className="bg-slate-50 p-3 flex justify-center gap-4 text-xs text-slate-400 border-t border-slate-100">
-              <a href="/Customer#/login" className={`hover:text-[#4CAF50] ${targetRole === UserRole.CUSTOMER ? 'font-bold text-[#4CAF50]' : ''}`}>Customer</a>
+              <a href={`${BASE_PATH}/Customer#/login`} className={`hover:text-[#4CAF50] ${targetRole === UserRole.CUSTOMER ? 'font-bold text-[#4CAF50]' : ''}`}>Customer</a>
               <span>•</span>
-              <a href="/Delivery-partner" className={`hover:text-[#4CAF50] ${targetRole === UserRole.DELIVERY_PARTNER ? 'font-bold text-[#4CAF50]' : ''}`}>Partner</a>
+              <a href={`${BASE_PATH}/Delivery-partner`} className={`hover:text-[#4CAF50] ${targetRole === UserRole.DELIVERY_PARTNER ? 'font-bold text-[#4CAF50]' : ''}`}>Partner</a>
               <span>•</span>
-              <a href="/Admin" className={`hover:text-[#4CAF50] ${targetRole === UserRole.ADMIN ? 'font-bold text-[#4CAF50]' : ''}`}>Admin</a>
+              <a href={`${BASE_PATH}/Admin`} className={`hover:text-[#4CAF50] ${targetRole === UserRole.ADMIN ? 'font-bold text-[#4CAF50]' : ''}`}>Admin</a>
             </div>
           </div>
         )}
@@ -319,7 +324,7 @@ const Header: React.FC<{ role?: string, onLogout: () => void, userName?: string,
         className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 cursor-pointer"
         onClick={() => {
           // Navigate to Home Page (Welcome Page)
-          window.location.href = '/';
+          window.location.href = BASE_PATH || '/';
         }}
       >
         <img src="/logo.png" alt="EcoExpress Logistics" className="h-20 w-auto object-contain" />
