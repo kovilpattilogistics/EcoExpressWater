@@ -38,7 +38,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ t }) => {
                     </div>
 
                     <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-2 tracking-tight drop-shadow-sm">
-                        {t.thirsty} - OFFICIAL WATER LANDING
+                        {t.thirsty}
                     </h1>
                     <span className="text-xl md:text-2xl font-bold text-[#4CAF50] block mb-6 drop-shadow-sm">{t.getWaterNow}</span>
 
