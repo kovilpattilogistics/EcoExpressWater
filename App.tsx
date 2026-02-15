@@ -17,6 +17,7 @@ import { getCustomers } from './services/firestoreService';
 import { UserRole, Customer } from './types';
 import { Truck, Users, ShieldCheck, MapPin, Phone, LogIn, Globe } from 'lucide-react';
 import { TRANSLATIONS, Language } from './constants/translations';
+import logo from './assets/logo.png';
 
 const App: React.FC = () => {
   // Use pathname for top-level routing (Admin vs Customer vs Driver)
@@ -324,7 +325,7 @@ const Header: React.FC<{ role?: string, onLogout: () => void, userName?: string,
           }
         }}
       >
-        <img src={`${BASE_PATH}/logo.png`} alt="EcoExpress Logistics" className="h-20 w-auto object-contain" />
+        <img src={logo} alt="EcoExpress Logistics" className="h-20 w-auto object-contain" />
       </div>
 
       {/* Right Side: User Controls & Language Toggle */}

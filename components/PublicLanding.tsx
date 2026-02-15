@@ -1,5 +1,6 @@
 import React from 'react';
 import { Truck, Users, ShieldCheck, Zap, Recycle, Smartphone, Clock, Star, LogIn } from 'lucide-react';
+import logo from '../assets/logo.png';
 import { Button } from './SharedComponents';
 import { BASE_PATH } from '../constants';
 
@@ -34,7 +35,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ t }) => {
                 {/* 2. Unified Hero */}
                 <div className="text-center px-4 mb-8">
                     <div className="mb-6 relative w-32 h-32 bg-white rounded-full p-6 shadow-2xl shadow-slate-100 flex items-center justify-center mx-auto border-[6px] border-slate-50">
-                        <img src={`${BASE_PATH}/logo.png`} alt="EcoExpress" className="w-full h-auto object-contain" />
+                        <img src={logo} alt="EcoExpress" className="w-full h-auto object-contain" />
                     </div>
 
                     <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-2 tracking-tight drop-shadow-sm">
