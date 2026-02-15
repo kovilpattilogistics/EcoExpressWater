@@ -1,6 +1,6 @@
 import React from 'react';
 import { Truck, Users, ShieldCheck, Zap, Recycle, Smartphone, Clock, Star, LogIn } from 'lucide-react';
-import logo from '../assets/logo.png';
+import logo from '../assets/logo-v2.png';
 import { Button } from './SharedComponents';
 import { BASE_PATH } from '../constants';
 

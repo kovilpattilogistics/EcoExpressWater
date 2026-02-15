@@ -17,7 +17,8 @@ import { getCustomers } from './services/firestoreService';
 import { UserRole, Customer } from './types';
 import { Truck, Users, ShieldCheck, MapPin, Phone, LogIn, Globe } from 'lucide-react';
 import { TRANSLATIONS, Language } from './constants/translations';
-import logo from './assets/logo.png';
+import logo from './assets/logo-v2.png';
+
 
 const App: React.FC = () => {
   // Use pathname for top-level routing (Admin vs Customer vs Driver)
