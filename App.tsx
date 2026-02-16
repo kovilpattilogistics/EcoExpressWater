@@ -17,7 +17,7 @@ import { getCustomers } from './services/firestoreService';
 import { UserRole, Customer } from './types';
 import { Truck, Users, ShieldCheck, MapPin, Phone, LogIn, Globe } from 'lucide-react';
 import { TRANSLATIONS, Language } from './constants/translations';
-import logo from './assets/logo-v2.png';
+import logo from './assets/logo-final.png';
 
 
 const App: React.FC = () => {
