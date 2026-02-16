@@ -32,7 +32,7 @@ export const TRANSLATIONS = {
         // Footer
         brandDesc: "Premium water delivery service ensuring hydration across Kovilpatti.",
         opsTitle: "Kovilpatti Operations",
-        rightsReserved: "All rights reserved.",
+        rightsReserved: "All rights reserved. (v2.1)",
 
         // Quick Order
         quickOrderTitle: "Quick Order Form",
