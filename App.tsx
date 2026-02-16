@@ -326,7 +326,7 @@ const Header: React.FC<{ role?: string, onLogout: () => void, userName?: string,
           }
         }}
       >
-        <img src={logo} alt="EcoExpress Logistics" className="h-20 w-auto object-contain" />
+        <img src={logo} alt="EcoExpress Logistics" className="h-12 md:h-14 w-auto object-contain drop-shadow-sm transition-transform hover:scale-105" />
       </div>
 
       {/* Right Side: User Controls & Language Toggle */}

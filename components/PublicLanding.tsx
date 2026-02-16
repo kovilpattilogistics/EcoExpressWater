@@ -34,8 +34,8 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ t }) => {
 
                 {/* 2. Unified Hero */}
                 <div className="text-center px-4 mb-8">
-                    <div className="mb-6 relative w-32 h-32 bg-white rounded-full p-6 shadow-2xl shadow-slate-100 flex items-center justify-center mx-auto border-[6px] border-slate-50">
-                        <img src={logo} alt="EcoExpress" className="w-full h-auto object-contain" />
+                    <div className="mb-6 relative w-40 h-40 md:w-48 md:h-48 bg-white/50 backdrop-blur-sm rounded-full p-2 flex items-center justify-center mx-auto shadow-xl shadow-green-100/50">
+                        <img src={logo} alt="EcoExpress" className="w-full h-full object-contain drop-shadow-md" />
                     </div>
 
                     <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-2 tracking-tight drop-shadow-sm">
