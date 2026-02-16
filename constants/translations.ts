@@ -1,8 +1,8 @@
 export const TRANSLATIONS = {
     en: {
         // Landing
-        thirsty: "Thirsty?",
-        getWaterNow: "Get Water Now.",
+        thirsty: "Need Water?",
+        getWaterNow: "Place your order Now",
         tagline: "Premium quality water delivered to your doorstep in minutes. Order cans or bottles effortlessly.",
         placeQuickOrder: "Place Quick Order",
         or: "or",
