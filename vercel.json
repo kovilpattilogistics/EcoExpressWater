@@ -5,7 +5,7 @@
       "destination": "/assets/$1"
     },
     {
-      "source": "/water-delivery/(.*\\.(png|jpg|jpeg|svg|gif|ico))",
+      "source": "/water-delivery/(.*\\.(png|jpg|jpeg|svg|gif|ico|json|webmanifest))",
       "destination": "/$1"
     },
     {
