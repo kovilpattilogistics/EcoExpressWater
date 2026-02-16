@@ -1,5 +1,5 @@
 import React from 'react';
-import { Truck, Users, ShieldCheck, Zap, Recycle, Smartphone, Clock, Star, LogIn } from 'lucide-react';
+import { Truck, Users, ShieldCheck, Zap, Recycle, Smartphone, Clock, Star, LogIn, ShoppingBag } from 'lucide-react';
 import logo from '../assets/logo-final.png';
 import { Button } from './SharedComponents';
 import { BASE_PATH } from '../constants';
@@ -56,9 +56,10 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ t }) => {
                     {/* CTA Area */}
                     <div className="w-full max-w-xs mx-auto flex flex-col gap-3">
                         <Button
-                            className="w-full py-4 text-lg font-bold shadow-lg shadow-green-200/80 hover:shadow-green-300 transform transition active:scale-95"
+                            className="w-full py-4 text-lg font-bold text-white bg-gradient-to-r from-green-500 to-green-600 rounded-full shadow-xl shadow-green-300/50 hover:shadow-green-400 hover:scale-105 active:scale-95 transition-all duration-300 transform flex items-center justify-center gap-2"
                             onClick={() => window.location.href = '#/quick-order'}
                         >
+                            <ShoppingBag className="w-5 h-5 animate-bounce" />
                             {t.placeQuickOrder}
                         </Button>
 
