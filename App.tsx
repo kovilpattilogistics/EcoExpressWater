@@ -12,6 +12,7 @@ import { PublicOrder } from './components/PublicOrder';
 import { PublicLanding } from './components/PublicLanding';
 
 import { Input, Button } from './components/SharedComponents';
+import { getEcoLang, setEcoLang } from './lang';
 import { ADMIN_CREDENTIALS, DRIVER_CREDENTIALS, BASE_PATH } from './constants';
 import { getCustomers } from './services/firestoreService';
 import { UserRole, Customer } from './types';
@@ -24,7 +25,8 @@ const App: React.FC = () => {
   // Use pathname for top-level routing (Admin vs Customer vs Driver)
   const [pathname, setPathname] = useState(() => {
     const path = window.location.pathname.toLowerCase();
-    return path.startsWith(BASE_PATH) ? path.substring(BASE_PATH.length) : path;
+    const cleanPath = path.startsWith(BASE_PATH) ? path.substring(BASE_PATH.length) : path;
+    return cleanPath || '/';
   });
   // Use hash for internal routing within Admin dashboard (Dashboard vs Inventory)
   const [hash, setHash] = useState(window.location.hash);
@@ -34,7 +36,12 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
 
   // Language State
-  const [lang, setLang] = useState<Language>('en');
+  const [lang, setLang] = useState<Language>(() => getEcoLang());
+
+  useEffect(() => {
+    // Persist language on mount (handles ?lang= param) and changes
+    setEcoLang(lang);
+  }, [lang]);
 
   // Login Form State
   const [username, setUsername] = useState('');
@@ -62,7 +69,10 @@ const App: React.FC = () => {
   }, []);
 
   const toggleLang = () => {
-    setLang(prev => prev === 'en' ? 'ta' : 'en');
+    setLang(prev => {
+      const newLang = prev === 'en' ? 'ta' : 'en';
+      return newLang;
+    });
   };
 
   const t = TRANSLATIONS[lang];
