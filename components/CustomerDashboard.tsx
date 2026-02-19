@@ -194,13 +194,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, 
 
     await saveOrder(newOrder);
 
-    // Send WhatsApp Notification
-    try {
-      const { sendOrderToWhatsApp } = await import('../services/whatsappService');
-      sendOrderToWhatsApp(newOrder, customer.phone);
-    } catch (err) {
-      console.error("WhatsApp redirection failed", err);
-    }
+
 
     toast.success('Order Placed Successfully!');
     setQuantities({});

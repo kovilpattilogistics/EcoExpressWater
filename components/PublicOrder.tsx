@@ -198,13 +198,7 @@ export const PublicOrder: React.FC<{ t?: any }> = ({ t = {} }) => {
       };
       await Promise.race([saveOrder(newOrder), new Promise((_, r) => setTimeout(() => r(new Error("Timeout")), 15000))]);
 
-      // Send WhatsApp Notification
-      try {
-        const { sendOrderToWhatsApp } = await import('../services/whatsappService');
-        sendOrderToWhatsApp(newOrder, customerInfo.phone);
-      } catch (err) {
-        console.error("WhatsApp redirection failed", err);
-      }
+
 
       setIsSuccess(true);
     } catch (error) { alert(`Failed: ${(error as Error).message}`); }
